@@ -107,13 +107,13 @@ class SetHP(Action):
 @dataclass
 class Damage(Action):
   target: PID
-  amount: PID
+  amount: int
   source: str = ""
 
 @dataclass
 class Heal(Action):
   target: PID
-  amount: PID
+  amount: int
   source: str = ""
 
 class Alignment(Enum):
@@ -208,3 +208,10 @@ class GameState:
 
 # An effect is a "negotiated" GameState
 Effect = Callable[[GameState], Generator[Prompt, Response, GameState]]
+
+@dataclass
+class Listener:
+    """A registered observer: replacement (instead-of) or trigger (before/after)."""
+    name: str
+    callback: Callable[[Action], Effect]
+    kind: str  # "replacement" | "before" | "after"
