@@ -1,4 +1,6 @@
-from type import *
+from abc import abstractmethod
+
+from core.type import *
 
 # An interpreter is a means of returning input from prompts.
 # We can build one by aggregating many partial interpreters, where a

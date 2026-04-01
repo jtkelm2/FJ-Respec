@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from random import Random
 from typing import Callable, Generator
 from enum import Enum, auto
-from abc import abstractmethod
 
 class CardType(Enum):
   WEAPON = auto()
@@ -117,18 +116,18 @@ class PlayerState:
     hp_floor: int | None = None
     hp_ceiling: int | None = None
     alignment: Alignment = Alignment.GOOD
-    role: Role = DefaultRole()
-    action_field: ActionField = ActionField()
+    role: Role = field(default_factory=DefaultRole)
+    action_field: ActionField = field(default_factory=ActionField)
     # permanent_traits: frozenset[Trait] = frozenset()
 
-    deck: Slot = Slot()
-    refresh: Slot = Slot()
-    discard: Slot = Slot()
-    hand: Slot = Slot()
-    manipulation_field: list[Slot] = []
+    deck: Slot = field(default_factory=Slot)
+    refresh: Slot = field(default_factory=Slot)
+    discard: Slot = field(default_factory=Slot)
+    hand: Slot = field(default_factory=Slot)
+    manipulation_field: list[Slot] = field(default_factory=list)
 
-    equipment: list[Slot] = [Slot(), Slot()]
-    weapon_slots: list[WeaponSlot] = [WeaponSlot()]
+    equipment: list[Slot] = field(default_factory=lambda: [Slot(), Slot()])
+    weapon_slots: list[WeaponSlot] = field(default_factory=lambda: [WeaponSlot()])
 
     # Per-action-phase tracking
     # has_eaten_this_phase: bool = False

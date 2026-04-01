@@ -1,5 +1,5 @@
-from type import *
-from interpret import *
+from core.type import *
+from core.interpret import *
 
 
 def run(g:GameState, effect: Effect, i:Interpreter) -> GameState:
@@ -96,4 +96,4 @@ def _fire_triggers(g: GameState, action: Action, kind: TKind) -> Generator[Promp
     return g
 
 def _get_traits(g: GameState) -> list[Trait]:
-   raise Exception("TODO")
+   return [] # TODO: collect traits from players, cards, etc.
