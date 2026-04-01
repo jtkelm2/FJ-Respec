@@ -1,4 +1,5 @@
-from core.type import *
+from type import *
+from interpret import *
 
 
 def run(g:GameState, effect: Effect, i:Interpreter) -> GameState:
@@ -37,12 +38,7 @@ def do(action: Action) -> Effect:
         return g
     return effect
 
-def compose(*effects) -> Effect:
-    def composed(g: GameState) -> Generator[Prompt, Response, GameState]:
-        for eff in effects:
-            g = yield from eff(g)
-        return g
-    return composed
+################## Helpers #########
 
 def _apply_action(g: GameState, action: Action) -> None:
     match action:
@@ -66,9 +62,7 @@ def _player_to_choose_replacement(g: GameState, action: Action) -> PID:
         return action.target
     return g.priority
 
-def _fire_triggers(
-    g: GameState, action: Action, kind: str
-) -> Generator[Prompt, Response, GameState]:
+def _fire_triggers(g: GameState, action: Action, kind: str) -> Generator[Prompt, Response, GameState]:
     triggered = [ tr for tr in _get_traits(g) if tr.kind == kind ]
     if not triggered:
         return g
