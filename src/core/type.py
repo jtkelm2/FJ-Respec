@@ -83,10 +83,10 @@ class DefaultRole(Role):
     self.alignment = Alignment.GOOD if good else Alignment.EVIL
 
 class Slot:
-  cards: tuple[Card, ...]
+  cards: list[Card]
 
   def __init__(self):
-    self.cids = ()
+    self.cards = []
 
 class WeaponSlot:
   weapon: Card | None
@@ -123,13 +123,13 @@ class PlayerState:
     action_field: ActionField = ActionField()
     # permanent_traits: frozenset[Trait] = frozenset()
 
-    deck: tuple[Card, ...] = ()
-    refresh_pile: tuple[Card, ...] = ()
-    discard_pile: tuple[Card, ...] = ()
-    hand: tuple[Card, ...] = ()
-    manipulation_field: tuple[Card, ...] = ()
+    deck: list[Card] = []
+    refresh_pile: list[Card] = []
+    discard_pile: list[Card] = []
+    hand: list[Card] = []
+    manipulation_field: list[Card] = []
 
-    equipment: tuple[Card, ...] = ()
+    equipment: list[Card] = []
     weapon_slots: tuple[WeaponSlot, WeaponSlot | None] = (WeaponSlot(), None)  # 1 normally, 2 for Two-Armed Freak
 
     # Per-action-phase tracking
@@ -156,7 +156,7 @@ class GameState:
     players: dict[PID,PlayerState]
 
     # Shared
-    guard_deck: tuple[Card, ...]
+    guard_deck: list[Card]
     action_field: ActionField
 
 # An effect is a "negotiated" GameState
