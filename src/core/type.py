@@ -9,7 +9,7 @@ class CardType(Enum):
   ENEMY = auto()
   FOOD = auto()
 
-@dataclass
+@dataclass(eq=False)
 class Card:
   name: str
   display_name: str
