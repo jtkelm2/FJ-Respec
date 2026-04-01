@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Generator
 from enum import Enum, auto
 from abc import abstractmethod
@@ -209,9 +209,13 @@ class GameState:
 # An effect is a "negotiated" GameState
 Effect = Callable[[GameState], Generator[Prompt, Response, GameState]]
 
+class TKind(Enum):
+  BEFORE = auto()
+  REPLACEMENT = auto()
+  AFTER = auto()
+
 @dataclass
-class Listener:
-    """A registered observer: replacement (instead-of) or trigger (before/after)."""
+class Trait:
     name: str
     callback: Callable[[Action], Effect]
-    kind: str  # "replacement" | "before" | "after"
+    kind: TKind
