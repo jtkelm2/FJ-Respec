@@ -129,8 +129,8 @@ class PlayerState:
     hand: list[Card] = []
     manipulation_field: list[Card] = []
 
-    equipment: list[Card] = []
-    weapon_slots: tuple[WeaponSlot, WeaponSlot | None] = (WeaponSlot(), None)  # 1 normally, 2 for Two-Armed Freak
+    equipment: list[Slot] = [Slot(), Slot()]
+    weapon_slots: list[WeaponSlot] = [WeaponSlot()]
 
     # Per-action-phase tracking
     # has_eaten_this_phase: bool = False
