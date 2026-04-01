@@ -23,17 +23,17 @@ def create_initial_state(seed: int | None = None) -> GameState:
     red_card, red_role   = roles[0]
     blue_card, blue_role = roles[1]
 
-    red = PlayerState(alignment=red_role.alignment, role=red_role, deck=red_deck)
+    red = PlayerState(alignment=red_role.alignment, role=red_role, deck=Slot(red_deck))
     red.equipment[0].cards.append(red_card)
 
-    blue = PlayerState(alignment=blue_role.alignment, role=blue_role, deck=blue_deck)
+    blue = PlayerState(alignment=blue_role.alignment, role=blue_role, deck=Slot(blue_deck))
     blue.equipment[0].cards.append(blue_card)
 
     return GameState(
         rng=rng,
         priority=rng.choice([PID.RED, PID.BLUE]),
         players={PID.RED: red, PID.BLUE: blue},
-        guard_deck=guards,
+        guard_deck=Slot(guards),
         action_field=ActionField(),
     )
 

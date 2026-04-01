@@ -27,42 +27,60 @@ def do(action: Action) -> Effect:
           return g
 
         # Before triggers
-        g = yield from _fire_triggers(g, action, "before")
+        g = yield from _fire_triggers(g, action, TKind.BEFORE)
 
         # Execute
-        _apply_action(g, action)
+        g = yield from _apply_action(action)(g)
 
         # After triggers
-        g = yield from _fire_triggers(g, action, "after")
+        g = yield from _fire_triggers(g, action, TKind.AFTER)
 
         return g
     return effect
 
 ################## Helpers #########
 
-def _apply_action(g: GameState, action: Action) -> None:
-    match action:
-        case SetHP(target, value, source):
-            p = g.players[target]
-            new_hp = value
-            if p.hp_floor is not None:
-                new_hp = max(new_hp, p.hp_floor)
-            if p.hp_ceiling is not None:
-                new_hp = min(new_hp, p.hp_ceiling)
-            p.hp = new_hp
-        case Heal(target, amount, source):
-            _apply_action(g, SetHP(target, g.players[target].hp + amount, source))
-        case Damage(target, amount, source):
-            _apply_action(g, SetHP(target, g.players[target].hp - amount, source))
-        case _:
-            raise Exception(f"Action not in list: {action}")
+def _apply_action(action: Action) -> Effect:
+    def effect(g:GameState) -> Generator[Prompt,Response,GameState]:
+        match action:
+            case Death(target):
+                p = g.players[target]
+                p.is_dead = True
+            case Discard(discarder, card, source):
+                p = g.players[discarder]
+                g.deslot(card)
+                p.discard.slot(card)
+            case Slay(slayer, enemy, ws, source):
+                if ws is None:
+                   g = yield from do(Discard(slayer, enemy, "combat (fists)"))(g)
+                   return g
+                g.deslot(enemy)
+                ws.killstack.slot(enemy)
+            case SetHP(target, value, source):
+                p = g.players[target]
+                new_hp = value
+                if p.hp_floor is not None:
+                    new_hp = max(new_hp, p.hp_floor)
+                if p.hp_ceiling is not None:
+                    new_hp = min(new_hp, p.hp_ceiling)
+                p.hp = new_hp
+                if p.hp <= 0:
+                    g = yield from do(Death(target))(g)
+            case Heal(target, amount, source):
+                g = yield from _apply_action(SetHP(target, g.players[target].hp + amount, source))(g) # TODO: Listeners for healing and damage
+            case Damage(target, amount, source):
+                g = yield from _apply_action(SetHP(target, g.players[target].hp - amount, source))(g)
+            case _:
+                raise Exception(f"Action not in list: {action}")
+        return g
+    return effect
 
 def _player_to_choose_replacement(g: GameState, action: Action) -> PID:
     if isinstance(action, (Damage, Heal, SetHP)):
         return action.target
     return g.priority
 
-def _fire_triggers(g: GameState, action: Action, kind: str) -> Generator[Prompt, Response, GameState]:
+def _fire_triggers(g: GameState, action: Action, kind: TKind) -> Generator[Prompt, Response, GameState]:
     triggered = [ tr for tr in _get_traits(g) if tr.kind == kind ]
     if not triggered:
         return g

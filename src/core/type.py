@@ -20,6 +20,9 @@ class Card:
   is_elusive: bool
   is_first: bool
 
+  def is_type(self,typ:CardType) -> bool:
+    return typ in list(self.types)
+
 class PID(Enum):
   RED  = auto()
   BLUE = auto()
@@ -48,28 +51,36 @@ class AskBoth(Prompt):
 
   def only(self,pid:PID) -> Ask:
     return Ask(pid,self.text[pid],self.options[pid])
+
+class Slot:
+  _cards: list[Card]
+
+  def __init__(self, cards: list[Card] | None = None):
+    self._cards = cards or []
   
-@dataclass
-class Action:
-  pass
+  @property
+  def cards(self):
+    return self._cards
 
-@dataclass
-class SetHP(Action):
-  target: PID
-  value: int
-  source: str = ""
+  def deslot(self, card:Card):
+    assert card in self._cards
+    self._cards.remove(card)
+  
+  def slot(self, card:Card):
+    self._cards.insert(0, card)
 
-@dataclass
-class Damage(Action):
-  target: PID
-  amount: int
-  source: str = ""
 
-@dataclass
-class Heal(Action):
-  target: PID
-  amount: int
-  source: str = ""
+class WeaponSlot:
+  weapon: Card | None
+  killstack: Slot
+
+  def __init__(self):
+    self.weapon = None
+    self.killstack = Slot()
+
+  def sharpness(self) -> int:
+    if not self.killstack.cards: return 0
+    return self.killstack.cards[0].level or 0
 
 class Alignment(Enum):
   GOOD = auto()
@@ -85,22 +96,6 @@ class DefaultRole(Role):
     self.name = "Human" if good else "???"
     self.alignment = Alignment.GOOD if good else Alignment.EVIL
 
-class Slot:
-  cards: list[Card]
-
-  def __init__(self):
-    self.cards = []
-
-class WeaponSlot:
-  weapon: Card | None
-  killstack: Slot
-
-  def __init__(self):
-    self.weapon = None
-    self.killstack = Slot()
-
-  def sharpness(self) -> int:
-    return 0 # TODO
 
 @dataclass
 class ActionField:
@@ -126,11 +121,11 @@ class PlayerState:
     action_field: ActionField = ActionField()
     # permanent_traits: frozenset[Trait] = frozenset()
 
-    deck: list[Card] = []
-    refresh_pile: list[Card] = []
-    discard_pile: list[Card] = []
-    hand: list[Card] = []
-    manipulation_field: list[Card] = []
+    deck: Slot = Slot()
+    refresh: Slot = Slot()
+    discard: Slot = Slot()
+    hand: Slot = Slot()
+    manipulation_field: list[Slot] = []
 
     equipment: list[Slot] = [Slot(), Slot()]
     weapon_slots: list[WeaponSlot] = [WeaponSlot()]
@@ -159,8 +154,29 @@ class GameState:
     players: dict[PID,PlayerState]
 
     # Shared
-    guard_deck: list[Card]
+    guard_deck: Slot
     action_field: ActionField
+
+    def all_slots(self) -> list[Slot]:
+        slots: list[Slot] = [self.guard_deck]
+        for af in [self.action_field]:
+            slots += [af.top_distant, af.bottom_distant, af.top_hidden, af.bottom_hidden]
+        for p in self.players.values():
+            slots += [p.deck, p.refresh, p.discard, p.hand]
+            slots += p.equipment
+            slots += p.manipulation_field
+            for ws in p.weapon_slots:
+                slots.append(ws.killstack)
+            paf = p.action_field
+            slots += [paf.top_distant, paf.bottom_distant, paf.top_hidden, paf.bottom_hidden]
+        return slots
+
+    def deslot(self, card: Card):
+        for slot in self.all_slots():
+            if card in slot.cards:
+                slot.deslot(card)
+                return
+        raise ValueError(f"Card {card} not found in any slot")
 
 # An effect is a "negotiated" GameState
 Effect = Callable[[GameState], Generator[Prompt, Response, GameState]]
@@ -171,6 +187,50 @@ def compose(*effects) -> Effect:
             g = yield from eff(g)
         return g
     return composed
+
+############# Actions ########
+
+@dataclass
+class Action:
+  pass
+
+@dataclass
+class SetHP(Action):
+  target: PID
+  value: int
+  source: str = ""
+
+@dataclass
+class Damage(Action):
+  target: PID
+  amount: int
+  source: str = ""
+
+@dataclass
+class Heal(Action):
+  target: PID
+  amount: int
+  source: str = ""
+
+@dataclass
+class Death(Action):
+  target: PID
+  source: str = ""
+
+@dataclass
+class Slay(Action):
+  slayer: PID
+  enemy: Card
+  ws: WeaponSlot | None   # weapon vs. fists
+  source: str = ""
+
+@dataclass
+class Discard(Action):
+  discarder: PID
+  card: Card
+  source: str = ""
+
+############ Traits ##############################
 
 class TKind(Enum):
   BEFORE = auto()
