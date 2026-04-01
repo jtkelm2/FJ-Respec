@@ -9,6 +9,7 @@ class CardType(Enum):
   ENEMY = auto()
   FOOD = auto()
 
+@dataclass
 class Card:
   name: str
   display_name: str
@@ -73,6 +74,7 @@ class Alignment(Enum):
   GOOD = auto()
   EVIL = auto()
 
+@dataclass
 class Role:
   name:str
   alignment:Alignment
