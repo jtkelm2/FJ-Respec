@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from random import Random
 from typing import Callable, Generator
 from enum import Enum, auto
 from abc import abstractmethod
@@ -148,7 +149,7 @@ class PlayerState:
 
 @dataclass
 class GameState:
-    rng_seed: int
+    rng: Random
 
     # phase: Phase
     # phase_context: PhaseContext

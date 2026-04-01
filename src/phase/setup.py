@@ -2,7 +2,7 @@ import random
 from core.type import *
 from cards import *
 
-def create_initial_state(seed: int) -> GameState:
+def create_initial_state(seed: int | None = None) -> GameState:
     rng = random.Random(seed)
 
     red_deck  = _player_deck()
@@ -30,7 +30,7 @@ def create_initial_state(seed: int) -> GameState:
     blue.equipment[0].cards.append(blue_card)
 
     return GameState(
-        rng_seed=seed,
+        rng=rng,
         priority=rng.choice([PID.RED, PID.BLUE]),
         players={PID.RED: red, PID.BLUE: blue},
         guard_deck=guards,
