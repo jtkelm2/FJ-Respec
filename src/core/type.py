@@ -229,6 +229,12 @@ class Discard(Action):
   source: str = ""
 
 @dataclass
+class Refresh(Action):
+  card: Card
+  player: PID
+  source: str = ""
+
+@dataclass
 class EnsureDeck(Action):
    player: PID
    source: str = ""

@@ -44,6 +44,8 @@ def _apply_action(action: Action) -> Effect:
             case Death(target):
                 p = g.players[target]
                 p.is_dead = True
+            case Refresh(card, player, source):
+                yield from do(SlotCard(card, g.players[player].refresh, "refresh"))(g)
             case Discard(discarder, card, source):
                 yield from do(SlotCard(card, g.players[discarder].discard, "discard"))(g)
             case Slay(slayer, enemy, ws, source):
