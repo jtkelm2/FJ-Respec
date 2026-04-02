@@ -18,6 +18,7 @@ class Card:
   types: tuple[CardType, ...]
   is_elusive: bool
   is_first: bool
+  slot: "Slot | None" = None
 
   def is_type(self,typ:CardType) -> bool:
     return typ in list(self.types)
@@ -55,19 +56,38 @@ class Slot:
   _cards: list[Card]
 
   def __init__(self, cards: list[Card] | None = None):
-    self._cards = cards or []
+    self._cards = []
+    if cards is not None: self.slot(*cards)
   
   @property
   def cards(self):
     return self._cards
 
-  def deslot(self, card:Card):
-    assert card in self._cards
-    self._cards.remove(card)
-  
-  def slot(self, card:Card):
-    self._cards.insert(0, card)
+  def deslot(self, *cards:Card):
+    for card in cards:
+      assert card in self._cards
+      assert card.slot is self
+      card.slot = None
+      self._cards.remove(card)
 
+  def slot(self, *cards:Card):
+    for card in cards:
+      if card.slot is not None:
+         card.slot.deslot(card)
+      card.slot = self
+      self._cards.insert(0, card)
+
+  def draw(self) -> Card:
+    assert self._cards
+    card = self._cards.pop(0)
+    card.slot = None
+    return card
+
+  def is_empty(self) -> bool:
+    return len(self._cards) == 0
+  
+  def shuffle(self,rng:Random):
+     rng.shuffle(self._cards)
 
 class WeaponSlot:
   weapon: Card | None
@@ -109,6 +129,9 @@ class ActionField:
       self.top_hidden = Slot()
       self.bottom_hidden = Slot()
 
+    def slots_in_fill_order(self) -> list[Slot]:
+      return [self.top_distant, self.top_hidden, self.bottom_hidden, self.bottom_distant]
+
 @dataclass
 class PlayerState:
     hp: int = 20
@@ -124,9 +147,9 @@ class PlayerState:
     refresh: Slot = field(default_factory=Slot)
     discard: Slot = field(default_factory=Slot)
     hand: Slot = field(default_factory=Slot)
-    manipulation_field: list[Slot] = field(default_factory=list)
+    manipulation_field: Slot = field(default_factory=Slot)
 
-    equipment: list[Slot] = field(default_factory=lambda: [Slot(), Slot()])
+    equipment: Slot = field(default_factory=Slot)
     weapon_slots: list[WeaponSlot] = field(default_factory=lambda: [WeaponSlot()])
 
     # Per-action-phase tracking
@@ -156,36 +179,12 @@ class GameState:
     guard_deck: Slot
     action_field: ActionField
 
-    def all_slots(self) -> list[Slot]:
-        slots: list[Slot] = [self.guard_deck]
-        for af in [self.action_field]:
-            slots += [af.top_distant, af.bottom_distant, af.top_hidden, af.bottom_hidden]
-        for p in self.players.values():
-            slots += [p.deck, p.refresh, p.discard, p.hand]
-            slots += p.equipment
-            slots += p.manipulation_field
-            for ws in p.weapon_slots:
-                slots.append(ws.killstack)
-            paf = p.action_field
-            slots += [paf.top_distant, paf.bottom_distant, paf.top_hidden, paf.bottom_hidden]
-        return slots
-
-    def deslot(self, card: Card):
-        for slot in self.all_slots():
-            if card in slot.cards:
-                slot.deslot(card)
-                return
-        raise ValueError(f"Card {card} not found in any slot")
+    def shuffle(self,slot:Slot):
+       slot.shuffle(self.rng)
 
 # An effect is a "negotiated" GameState
-Effect = Callable[[GameState], Generator[Prompt, Response, GameState]]
-
-def compose(*effects) -> Effect:
-    def composed(g: GameState) -> Generator[Prompt, Response, GameState]:
-        for eff in effects:
-            g = yield from eff(g)
-        return g
-    return composed
+Negotiation = Generator[Prompt, Response, None]
+Effect = Callable[[GameState], Negotiation]
 
 ############# Actions ########
 
@@ -227,6 +226,56 @@ class Slay(Action):
 class Discard(Action):
   discarder: PID
   card: Card
+  source: str = ""
+
+@dataclass
+class EnsureDeck(Action):
+   player: PID
+   source: str = ""
+
+@dataclass
+class Shuffle(Action):
+   slot: Slot
+   source: str = ""
+
+@dataclass
+class ShuffleRefreshIntoDeck(Action):
+  player: PID
+  source: str = ""
+
+@dataclass
+class Draw(Action):
+  player: PID         # who receives the card
+  # from_player: PID    # whose deck to draw from
+  source: str = ""
+
+@dataclass
+class Slot2Slot(Action):
+   orig: Slot
+   dest: Slot
+   source: str = ""
+
+@dataclass
+class Slot2SlotAll(Action):
+   orig: Slot
+   dest: Slot
+   source: str = ""
+
+@dataclass
+class SlotCard(Action):
+   card: Card
+   slot: Slot
+   source: str = ""
+
+@dataclass
+class DealToActionField(Action):
+  player: PID
+  card: Card
+  slot: Slot
+  source: str = ""
+
+@dataclass
+class FlipPriority(Action):
   source: str = ""
 
 ############ Traits ##############################

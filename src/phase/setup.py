@@ -24,10 +24,10 @@ def create_initial_state(seed: int | None = None) -> GameState:
     blue_card, blue_role = roles[1]
 
     red = PlayerState(alignment=red_role.alignment, role=red_role, deck=Slot(red_deck))
-    red.equipment[0].cards.append(red_card)
+    red.equipment.slot(red_card)
 
     blue = PlayerState(alignment=blue_role.alignment, role=blue_role, deck=Slot(blue_deck))
-    blue.equipment[0].cards.append(blue_card)
+    blue.equipment.slot(blue_card)
 
     return GameState(
         rng=rng,

@@ -26,7 +26,7 @@ def choose_weapon_prompt(g: GameState, player: PID, enemy: Card) -> Prompt:
 # --- Combat resolution ---
 
 def resolve_combat(resolver: PID, enemy: Card) -> Effect:
-    def effect(g: GameState) -> Generator[Prompt, Response, GameState]:
+    def effect(g: GameState) -> Negotiation:
         enemy_level = enemy.level
         assert enemy_level is not None
 
@@ -43,8 +43,6 @@ def resolve_combat(resolver: PID, enemy: Card) -> Effect:
             sharpness = ws.sharpness()
 
         dmg = max(0, enemy_level - sharpness)
-        g = yield from do(Damage(resolver, dmg, "combat"))(g)
-        g = yield from do(Slay(resolver, enemy, ws, "ordinary combat"))(g)
-
-        return g
+        yield from do(Damage(resolver, dmg, "combat"))(g)
+        yield from do(Slay(resolver, enemy, ws, "ordinary combat"))(g)
     return effect
