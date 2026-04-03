@@ -1,42 +1,32 @@
 from core.type import *
-from core.engine import do
+from core.engine import do, simultaneously
 
 
 def manipulation_phase() -> Effect:
     """
-    Manipulation Phase:
-      1. Each player chooses: Manipulate or Dump (simultaneously via AskBoth)
-         - Manipulate: swap cards between manipulation field and hand; optionally force
-         - Dump: discard or refresh each card in hand (elusive can only be refreshed)
-      2. Post-manipulation for each player:
-         a. Draw one card from other player's deck into manipulation field
-         b. Shuffle manipulation field; deal one card to other player's open action slot
-            (if forcing, player chooses which card; otherwise random)
-         c. Refresh remaining manipulation field cards (to other player's refresh pile)
-         d. Refresh any elusive cards remaining in hand (to other player's refresh pile)
+    Manipulation Phase (fully async of either player):
+      Each player independently:
+        1. Chooses: Manipulate or Dump
+        2. Executes that choice (swap loop + force, or discard/refresh hand)
+        3. Post-manipulation: mix third card, shuffle, deal one to opponent, clean up
     """
-    def effect(g: GameState) -> Negotiation:
-        prompt = AskBoth(
-            text={pid: "Choose: Manipulate or Dump?" for pid in PID},
-            options={pid: ["Manipulate", "Dump"] for pid in PID},
-        )
-        response = yield prompt
-
-        forced = {pid: False for pid in PID}
-
-        for pid in PID:
+    def player_effect(pid) -> Effect:
+        def eff(g):
+            forcing = {'val': False}
+            response = yield Ask(pid, "Choose: Manipulate or Dump?", ["Manipulate", "Dump"])
             if response[pid] == 0:
-                yield from _manipulate(pid, forced)(g)
+                yield from _manipulate(pid, forcing)(g)
             else:
                 yield from _dump(pid)(g)
-            yield from _post_manipulation(pid, forced[pid])(g)
-            
-    return effect
+            yield from _post_manipulation(pid, forcing['val'])(g)
+        return eff
+
+    return simultaneously({pid: player_effect(pid) for pid in PID})
 
 
 # --- Helpers ---
 
-def _manipulate(pid: PID, forced: dict[PID, bool]) -> Effect:
+def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
     """Swap cards between manipulation field and hand; optionally force."""
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
@@ -72,7 +62,7 @@ def _manipulate(pid: PID, forced: dict[PID, bool]) -> Effect:
             if choice > 0:
                 equip = equipment_cards[choice - 1]
                 yield from do(Discard(pid, equip, "forcing"))(g)
-                forced[pid] = True
+                forcing['val'] = True
 
     return effect
 
@@ -81,17 +71,17 @@ def _dump(pid: PID) -> Effect:
     """Discard or refresh each card in hand. Elusive cards must be refreshed."""
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
-        other_p = g.players[other(pid)]
+        other_pid = other(pid)
 
-        for card in p.hand.cards:
+        for card in list(p.hand.cards):
             if card.is_elusive:
-                yield from do(SlotCard(card, other_p.refresh, "dump elusive"))(g)
+                yield from do(Refresh(card, other_pid, "dump elusive"))(g)
             else:
                 response = yield Ask(pid, f"{card.display_name}:", ["Discard", "Refresh"])
                 if response[pid] == 0:
-                    yield from do(SlotCard(card, other_p.discard, "dump discard"))(g)
+                    yield from do(Discard(other_pid, card, "dump discard"))(g)
                 else:
-                    yield from do(SlotCard(card, other_p.refresh, "dump refresh"))(g)
+                    yield from do(Refresh(card, other_pid, "dump refresh"))(g)
 
     return effect
 

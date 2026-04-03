@@ -33,24 +33,30 @@ def other(pid:PID) -> PID:
     case PID.BLUE: return PID.RED
 
 @dataclass
-class Prompt:
-  pass
-
-Response = dict[PID,int]
-
-@dataclass
-class Ask(Prompt):
-  pid: PID
+class PromptHalf:
+  """A question for one player."""
   text: str
   options: list[str]
 
-@dataclass
-class AskBoth(Prompt):
-  text: dict[PID,str]
-  options: dict[PID,list[str]]
+class PKind(Enum):
+  BOTH = auto()
+  EITHER = auto()
 
-  def only(self,pid:PID) -> Ask:
-    return Ask(pid,self.text[pid],self.options[pid])
+@dataclass
+class Prompt:
+  for_player: dict[PID,PromptHalf]
+  kind: PKind
+
+def Ask(player:PID, text: str, options: list[str]) -> Prompt:
+  return Prompt({player: PromptHalf(text, options)}, PKind.EITHER)
+
+def AskBoth(asks: dict[PID,PromptHalf]) -> Prompt:
+  return Prompt(asks, PKind.BOTH)
+
+def AskEither(asks: dict[PID,PromptHalf]) -> Prompt:
+  return Prompt(asks, PKind.EITHER)
+
+Response = dict[PID,int]
 
 class Slot:
   _cards: list[Card]

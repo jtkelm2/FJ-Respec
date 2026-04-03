@@ -36,6 +36,35 @@ def do(action: Action) -> Effect:
         yield from _fire_triggers(g, action, TKind.AFTER)
     return effect
 
+def simultaneously(effects: dict[PID, Effect]) -> Effect:
+    """Combinator for asynchronously combining Effects, via AskEither.
+
+    Each effect must only yield single-player Ask prompts for its own PID.
+    Pending prompts from both players are merged into one AskEither;
+    whichever player the interpreter answers for has their generator advanced.
+    """
+    def effect(g: GameState) -> Negotiation:
+        gens = {pid: eff(g) for pid, eff in effects.items()}
+        pending: dict[PID, PromptHalf] = {}
+
+        def _extract(prompt:Prompt, pid:PID):
+            assert prompt.kind == PKind.EITHER and len(prompt.for_player) == 1
+            return prompt.for_player[pid]
+
+        for pid in PID:
+            try: pending[pid] = _extract(next(gens[pid]), pid)
+            except StopIteration: pass
+
+        while pending:
+            response = yield AskEither(pending)
+            answered_pid = next(iter(response))
+            del pending[answered_pid]
+            try: pending[answered_pid] = _extract(gens[answered_pid].send(response), answered_pid)
+            except StopIteration: pass
+
+    return effect
+
+
 ################## Helpers #########
 
 def _apply_action(action: Action) -> Effect:
