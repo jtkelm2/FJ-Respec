@@ -280,13 +280,6 @@ class SlotCard(Action):
    source: str = ""
 
 @dataclass
-class DealToActionField(Action):
-  player: PID
-  card: Card
-  slot: Slot
-  source: str = ""
-
-@dataclass
 class FlipPriority(Action):
   source: str = ""
 

@@ -119,8 +119,6 @@ def _apply_action(action: Action) -> Effect:
             case Draw(player):
                 yield from do(EnsureDeck(other(player),"draw to hand"))(g)
                 yield from do(Slot2Slot(g.players[other(player)].deck, g.players[player].hand, "draw"))(g)
-            case DealToActionField(player, card, slot):
-                yield from do(SlotCard(card, slot, "deal to action field"))(g)
             case FlipPriority():
                 g.priority = other(g.priority)
             case _:

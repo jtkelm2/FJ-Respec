@@ -119,11 +119,11 @@ def _post_manipulation(pid: PID, is_forcing: bool) -> Effect:
                 yield from do(Slot2Slot(p.manipulation_field, slot, "deal to action field"))(g)
 
         # Step 4: refresh remaining manipulation field cards (back to other's refresh pile)
-        for card in p.manipulation_field.cards:
+        for card in list(p.manipulation_field.cards):
             yield from do(Refresh(card, other_pid, "refresh manipulation remainder"))(g)
 
         # Step 5: refresh any elusive cards still in hand (back to other's refresh pile)
-        for card in p.hand.cards:
+        for card in list(p.hand.cards):
             if card.is_elusive:
                 yield from do(Refresh(card, other_pid, "refresh elusive from hand"))(g)
 
