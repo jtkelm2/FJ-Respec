@@ -82,18 +82,19 @@ class TestSimultaneously:
         run(g, simultaneously({PID.RED: red_eff, PID.BLUE: blue_eff}),
             interp())
 
-    def test_rejects_non_either_prompt(self):
-        """simultaneously requires each effect to yield single-player Ask prompts.
+    def test_rejects_multi_player_either_prompt(self):
+        """An EITHER prompt with 2 players violates len(for_player) == 1.
 
-        Yielding a BOTH prompt must trigger the assertion in _extract.
         Kills mutant: simultaneously__mutmut_4 (and -> or).
+        With `and`, True and False = AssertionError.
+        With `or`, True or False = passes (no error) — mutant detected.
         """
         def red_eff(g):
-            # Yield a BOTH prompt — violates simultaneously's contract
-            yield AskBoth({
+            # kind=EITHER but 2 players — violates exactly one condition
+            yield Prompt({
                 PID.RED: PromptHalf("R:", ["a"]),
                 PID.BLUE: PromptHalf("B:", ["x"]),
-            })
+            }, PKind.EITHER)
 
         def blue_eff(g):
             return

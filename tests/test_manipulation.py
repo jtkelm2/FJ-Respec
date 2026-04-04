@@ -136,6 +136,37 @@ class TestManipulate:
         assert equip in p.discard.cards
         assert equip not in p.equipment.cards
 
+    def test_force_with_second_equipment_discards_correct_one(self):
+        """Kills mutant: equipment_cards[choice-1] -> equipment_cards[choice-2].
+
+        With 2 equipment cards and choice=2, choice-1=1 (correct second card)
+        vs choice-2=0 (wrong first card).
+        """
+        g = create_initial_state(seed=42)
+        p = g.players[PID.RED]
+        mf1 = food(1)
+        h1 = food(2)
+        p.manipulation_field.slot(mf1)
+        p.hand.slot(h1)
+
+        # Add a second equipment card
+        extra_equip = Card("shield", "Shield", "", None, (CardType.EQUIPMENT,), False, False)
+        p.equipment.slot(extra_equip)
+        role_card = [c for c in p.equipment.cards if c is not extra_equip][0]
+
+        forcing = {'val': False}
+        # Done immediately (1 mf card + Done -> choose 1)
+        # Force prompt: ["No", "Discard Shield", "Discard <role>"] -> choose 2 (role card)
+        # equipment_cards order: [extra_equip, role_card] (extra slotted last = front)
+        # Wait, slot inserts at front: equipment = [extra_equip, role_card]
+        # Options: ["No", "Discard Shield", "Discard <role>"]
+        # choice=2 -> equipment_cards[2-1] = equipment_cards[1] = role_card
+        run(g, _manipulate(PID.RED, forcing), interp(1, 2))
+
+        assert forcing['val']
+        assert role_card in p.discard.cards
+        assert extra_equip in p.equipment.cards  # first one NOT discarded
+
 
 # ---------- _post_manipulation ----------
 
@@ -226,6 +257,59 @@ class TestPostManipulation:
 # ---------- integration ----------
 
 class TestManipulationPhaseIntegration:
+
+    def test_manipulate_with_force_reaches_post_manipulation(self):
+        """Kills mutant: forcing['val'] -> None in manipulation_phase.
+
+        With forcing=True, post-manipulation gives a prompt to choose which
+        card to send. With forcing=False (the mutant), Slot2Slot takes the
+        first card from the shuffled mf without asking.
+
+        We verify forcing by checking that equipment was discarded (force cost)
+        AND that the number of interpreter choices consumed matches the forcing
+        path (which has one extra prompt).
+        """
+        g = create_initial_state(seed=42)
+        red = g.players[PID.RED]
+        blue = g.players[PID.BLUE]
+
+        # Give RED mf and hand cards
+        mf1 = food(1)
+        h1 = food(2)
+        red.manipulation_field.slot(mf1)
+        red.hand.slot(h1)
+
+        # Fill 3 of BLUE's 4 action slots -> 1 open
+        for i, slot in enumerate(blue.action_field.slots_in_fill_order()):
+            if i < 3:
+                slot.slot(food(90 + i))
+
+        from phase.manipulation import manipulation_phase
+        from core.interpret import ScriptedInterpreter, AggregateInterpreter
+
+        # RED: Manipulate(0), Done(1), Force(1), PostManip choose card(0)
+        # BLUE: Dump(1) with empty hand
+        red_script = ScriptedInterpreter([0, 1, 1, 0])
+        blue_script = ScriptedInterpreter([1])
+        run(g, manipulation_phase(),
+            AggregateInterpreter(red_script, blue_script))
+
+        # Force cost: equipment discarded
+        assert len(red.equipment.cards) == 0
+
+        # All 4 of BLUE's action slots now occupied
+        filled = [s for s in blue.action_field.slots_in_fill_order()
+                  if not s.is_empty()]
+        assert len(filled) == 4
+
+        # KEY: if forcing was active, RED's script is fully consumed (4 choices).
+        # If the mutant makes forcing=None (falsy), post-manipulation skips
+        # the force prompt and RED's script has 1 leftover choice -> the
+        # interpreter would NOT be empty.
+        assert len(red_script.script) == 0, (
+            f"RED interpreter has {len(red_script.script)} unconsumed choice(s). "
+            f"Forcing prompt was likely skipped (forcing flag lost)."
+        )
 
     def test_both_dump_empty_hands(self):
         """Both players dump with empty hands; post-manipulation runs cleanly."""

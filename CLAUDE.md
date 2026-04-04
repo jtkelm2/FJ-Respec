@@ -36,78 +36,55 @@ The `Interpreter` abstraction is the boundary between engine and frontend. Befor
 - `combat.py` — Weapon selection and combat resolution
 - `phase/` — Game phase implementations (setup, refresh, ...)
 
-## Running tests
+## Testing
 
-```
-python -m pytest tests/
-```
+### New features must be validated
 
-## Testing methodology
+Every new feature, action, or phase must be accompanied by tests that pass both the test suite and mutation testing. The workflow:
+
+1. Write tests with strong oracles (specific value assertions, not just "didn't crash").
+2. Run `python -m pytest tests/`.
+3. Run `mutmut run`, then `mutmut results` and `mutmut show <name>` to inspect survivors.
+4. Any surviving mutant that changes *control flow* or *arithmetic* in the new code represents a real test gap. Write a targeted test to kill it, then rerun.
+
+The goal is not 100% mutation score — it's that every *behavioral* mutant in the new code is killed.
 
 ### What makes a test worth writing
 
 Test quality is not measured by line coverage. Line coverage tells you code was *executed*, not that its *results were checked*. The meaningful hierarchy, backed by empirical research (Just et al. 2014, Inozemtseva & Holmes 2014), is:
 
-1. **Mutation score** — can the test detect small injected faults? This is the strongest predictor of real fault-detection ability.
-2. **Assertion density / oracle strength** — does the test check a specific value, or just that nothing crashed? `assert hp == 5` catches faults; `assert result is not None` catches almost nothing.
-3. **Property/invariant coverage** — are there tests that verify things like "total card count is conserved" across any operation? These catch classes of bugs, not single instances.
-4. **Suite size** — more tests is better, but only if they have strong oracles.
-5. **Line/branch coverage** — necessary but nearly useless alone. High coverage with weak assertions is worse than moderate coverage with strong assertions, because it creates false confidence.
+1. **Mutation score** — can the test detect small injected faults? Strongest predictor of real fault-detection ability.
+2. **Assertion density / oracle strength** — `assert hp == 5` catches faults; `assert result is not None` catches almost nothing.
+3. **Property/invariant coverage** — "total card count is conserved across any operation" catches classes of bugs, not single instances.
+4. **Suite size** — more tests helps, but only with strong oracles.
+5. **Line/branch coverage** — necessary but nearly useless alone. Creates false confidence when assertions are weak.
 
-### How this test suite is organized
+### Testing patterns
 
-Tests live in `tests/`. Shared helpers are in `tests/helpers.py`; path setup is in `tests/conftest.py`.
-
-| File | What it tests |
-|---|---|
-| `test_slot_mechanics.py` | Slot bookkeeping, LIFO ordering, card conservation, `Card.is_type()` |
-| `test_hp_system.py` | Parametrized damage/heal boundaries, floor/ceiling clamping, multi-step HP composition |
-| `test_actions.py` | Action primitives through `do()`: Draw, EnsureDeck, SlotCard, Slot2Slot, FlipPriority, Refresh, Discard |
-| `test_combat.py` | Fists/weapon combat, sharpness-damage monotonicity (metamorphic property), `can_use_weapon` boundaries |
-| `test_manipulation.py` | `_dump`, `_manipulate`, `_post_manipulation` helpers directly, plus full `manipulation_phase()` integration |
-| `test_simultaneously.py` | The async effect combinator: interleaving, early finish, contract violation rejection |
-| `test_invariants.py` | Cross-cutting properties: card conservation across phases, dead-player skip during refresh |
-| `test_engine.py` | Original tests (HP, discard, combat, refresh basics) |
-
-**Key patterns used:**
-
-- **Boundary value analysis** via `@pytest.mark.parametrize` — damage amounts at 0, 1, 19, 20, 21, 999 hit every edge of the HP pipeline.
-- **Metamorphic relations** — `TestDamageMonotonicity` verifies that increasing sharpness never increases damage, for any fixed enemy level. This tests the *shape* of the combat formula without hardcoding expected values.
-- **Conservation invariants** — `count_all_cards()` verifies total card count is identical before and after any phase. Cards must never be created or destroyed by slot operations.
-- **Negative tests** — `pytest.raises(AssertionError)` for drawing from empty slots, deslotting absent cards, and violating the `simultaneously()` contract.
-- **Scripted interpreters** — `interp(0, 1, blue=[0])` provides deterministic player choices. When testing manipulation or simultaneously, trace the prompt sequence carefully: `simultaneously()` answers RED first (dict insertion order), and each player's dump/manipulate prompts interleave accordingly.
+- **Boundary value analysis** via `@pytest.mark.parametrize` — test at every edge of a value range (0, 1, N-1, N, N+1, extreme).
+- **Metamorphic relations** — verify the *shape* of a function (e.g. "increasing sharpness never increases damage") without hardcoding expected values.
+- **Conservation invariants** — `count_all_cards()` in `tests/helpers.py` verifies total card count before and after any phase. Cards must never be created or destroyed.
+- **Negative tests** — `pytest.raises(AssertionError)` for contract violations (empty draws, bad prompts in `simultaneously()`).
+- **Scripted interpreters** — `interp(0, 1, blue=[0])` from `tests/helpers.py` provides deterministic player choices. When testing `simultaneously()`, RED is answered first (dict insertion order), and each player's prompts interleave accordingly.
 
 ### Mutation testing with mutmut
 
-Configured in `setup.cfg`. Run with:
+Configured in `setup.cfg`. Commands:
 
 ```
-mutmut run                     # full run (~2 min)
+mutmut run                     # full run
 mutmut results                 # list survivors
 mutmut show <mutant_name>      # inspect a specific mutant's diff
 ```
 
-**How to read the results:**
+`mutmut results` only shows *surviving* and *no-tests* mutants. Killed mutants are silent. A surviving mutant means the test suite cannot distinguish the mutated code from the original.
 
-`mutmut results` only shows *surviving* and *no-tests* mutants. Killed mutants (the good ones) are silent. A surviving mutant means the test suite cannot distinguish the mutated code from the original — either the mutation is in untested behavior, or the tests have weak oracles for that code path.
+**Interpreting survivors:**
 
-**Expected noise in this codebase:**
+- Mutations to `source: str` fields on Actions, card factory display strings, `CLIInterpreter`, and `_fire_triggers`/trait dispatch (dead until traits land) are equivalent mutants — not real test gaps. These lines are marked `# pragma: no mutate` so mutmut skips them.
+- Mutations that change *control flow* or *arithmetic* are genuine. Examples: `not p.is_dead` → `p.is_dead`, `and` → `or` in assertions, `[:-1]` → `[:-2]` in slicing.
+- Use `mutmut tests-for-mutant <name>` to see which tests mutmut runs against a specific mutant. If the test you expect to kill it isn't listed, the test may not exist, or coverage-based test selection may have mapped the function incorrectly.
 
-Most survivors are equivalent mutants that don't represent real test gaps:
+**Whitelisting lines from mutation:**
 
-- **`source: str` parameter mutations (~250)** — every Action has a `source` field for debugging provenance. Mutating `"refresh"` to `None` doesn't change game behavior. No test should check these strings.
-- **`_fire_triggers` / trait dispatch in `do()` (~50)** — dead code until the trait system is implemented. `_get_triggers()` returns `[]`, so these paths never execute.
-- **`CLIInterpreter` (16 no-tests)** — interactive I/O, untestable in automation.
-- **Card factory string fields** — mutating display names or card names doesn't affect game logic.
-
-**When a surviving mutant is genuinely interesting:**
-
-Look for mutations that change *control flow* or *arithmetic* rather than strings. Examples that led to real test additions:
-
-- `not p.is_dead` → `p.is_dead` in `_deal_hand` — revealed that no test exercised the dead-player guard during refresh.
-- `and` → `or` in `simultaneously()`'s `_extract` assertion — revealed that no test sent a malformed prompt to test the contract.
-- `[:-1]` → `[:-2]` in `_deal_action_cards` — should have been killed by existing tests; survival indicated a mutmut test-selection issue, not a real gap.
-
-**Iterating on mutation score:**
-
-The workflow is: run mutmut, scan survivors for behavioral mutations (skip `source`-string and dead-code noise), write a targeted test for each real gap, rerun. The goal is not 100% mutation score — it's that every *behavioral* mutant is killed.
+Lines that produce only equivalent mutants (debug strings, dead code, display-only values) are marked with `# pragma: no mutate`. This is the only pragma syntax supported by mutmut 3.5 — it works per-line only, not per-block or per-region. When adding new code that has equivalent-mutant-prone lines (source strings on Actions, prompt display text, factory string fields), add the pragma. When the trait system lands, remove the pragmas from `_fire_triggers`, `_get_triggers`, `_player_to_choose_replacement`, and the trait dispatch branch in `do()`.

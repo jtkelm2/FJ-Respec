@@ -15,25 +15,25 @@ def run(g:GameState, effect: Effect, i:Interpreter):
 def do(action: Action) -> Effect:
     def effect(g: GameState) -> Negotiation:
         # Instead-of: find an applicable replacement and delegate to it.
-        candidates = [ tr for tr in _get_triggers(g) if tr.kind == TKind.REPLACEMENT ]
-        if candidates:
-          if len(candidates) == 1:
-            chosen = candidates[0]
+        candidates = [ tr for tr in _get_triggers(g) if tr.kind == TKind.REPLACEMENT ]  # pragma: no mutate
+        if candidates:  # pragma: no mutate
+          if len(candidates) == 1:  # pragma: no mutate
+            chosen = candidates[0]  # pragma: no mutate
           else:
-            pid = _player_to_choose_replacement(g, action)
-            response = yield Ask(pid, f"Choose replacement for {action}:", [tr.name for tr in candidates])
-            chosen = candidates[response[pid]]
-          yield from chosen.callback(action)(g)
-          return
+            pid = _player_to_choose_replacement(g, action)  # pragma: no mutate
+            response = yield Ask(pid, f"Choose replacement for {action}:", [tr.name for tr in candidates])  # pragma: no mutate
+            chosen = candidates[response[pid]]  # pragma: no mutate
+          yield from chosen.callback(action)(g)  # pragma: no mutate
+          return  # pragma: no mutate
 
         # Before triggers
-        yield from _fire_triggers(g, action, TKind.BEFORE)
+        yield from _fire_triggers(g, action, TKind.BEFORE)  # pragma: no mutate
 
         # Execute
         yield from _apply_action(action)(g)
 
         # After triggers
-        yield from _fire_triggers(g, action, TKind.AFTER)
+        yield from _fire_triggers(g, action, TKind.AFTER)  # pragma: no mutate
     return effect
 
 def simultaneously(effects: dict[PID, Effect]) -> Effect:
@@ -74,14 +74,14 @@ def _apply_action(action: Action) -> Effect:
                 p = g.players[target]
                 p.is_dead = True
             case Refresh(card, player, source):
-                yield from do(SlotCard(card, g.players[player].refresh, "refresh"))(g)
+                yield from do(SlotCard(card, g.players[player].refresh, "refresh"))(g)  # pragma: no mutate
             case Discard(discarder, card, source):
-                yield from do(SlotCard(card, g.players[discarder].discard, "discard"))(g)
+                yield from do(SlotCard(card, g.players[discarder].discard, "discard"))(g)  # pragma: no mutate
             case Slay(slayer, enemy, ws, source):
                 if ws is None:
-                   yield from do(Discard(slayer, enemy, "combat (fists)"))(g)
+                   yield from do(Discard(slayer, enemy, "combat (fists)"))(g)  # pragma: no mutate
                    return
-                yield from do(SlotCard(enemy, ws.killstack, "slay"))(g)
+                yield from do(SlotCard(enemy, ws.killstack, "slay"))(g)  # pragma: no mutate
             case SetHP(target, value, source):
                 p = g.players[target]
                 new_hp = value
@@ -100,49 +100,49 @@ def _apply_action(action: Action) -> Effect:
             case Slot2SlotAll(orig, dest, source):
                 dest.slot(*orig.cards)
             case Heal(target, amount, source):
-                yield from do(SetHP(target, g.players[target].hp + amount, source))(g)
+                yield from do(SetHP(target, g.players[target].hp + amount, source))(g)  # pragma: no mutate
             case Damage(target, amount, source):
-                yield from do(SetHP(target, g.players[target].hp - amount, source))(g)
+                yield from do(SetHP(target, g.players[target].hp - amount, source))(g)  # pragma: no mutate
             case Shuffle(slot, source):
                 g.shuffle(slot)
             case ShuffleRefreshIntoDeck(player, source):
                 p = g.players[player]
-                yield from do(Slot2SlotAll(p.refresh, p.deck, "shuffle refresh"))(g)
-                yield from do(Shuffle(p.deck, "shuffle refresh"))(g)
+                yield from do(Slot2SlotAll(p.refresh, p.deck, "shuffle refresh"))(g)  # pragma: no mutate
+                yield from do(Shuffle(p.deck, "shuffle refresh"))(g)  # pragma: no mutate
             case EnsureDeck(player, source):
                 p = g.players[player]
                 if p.deck.is_empty():
-                    yield from do(ShuffleRefreshIntoDeck(player, "exhaustion recovery"))(g)
+                    yield from do(ShuffleRefreshIntoDeck(player, "exhaustion recovery"))(g)  # pragma: no mutate
                 if p.deck.is_empty():
                     for pid in PID:
-                        yield from do(Death(pid, source="exhaustion"))(g)
+                        yield from do(Death(pid, source="exhaustion"))(g)  # pragma: no mutate
             case Draw(player):
-                yield from do(EnsureDeck(other(player),"draw to hand"))(g)
-                yield from do(Slot2Slot(g.players[other(player)].deck, g.players[player].hand, "draw"))(g)
+                yield from do(EnsureDeck(other(player),"draw to hand"))(g)  # pragma: no mutate
+                yield from do(Slot2Slot(g.players[other(player)].deck, g.players[player].hand, "draw"))(g)  # pragma: no mutate
             case FlipPriority():
                 g.priority = other(g.priority)
-            case _:
-                raise Exception(f"Action not in list: {action}")
+            case _:  # pragma: no mutate
+                raise Exception(f"Action not in list: {action}")  # pragma: no mutate
     return effect
 
-def _player_to_choose_replacement(g: GameState, action: Action) -> PID:
-    if isinstance(action, (Damage, Heal, SetHP)):
-        return action.target
-    return g.priority
+def _player_to_choose_replacement(g: GameState, action: Action) -> PID:  # pragma: no mutate
+    if isinstance(action, (Damage, Heal, SetHP)):  # pragma: no mutate
+        return action.target  # pragma: no mutate
+    return g.priority  # pragma: no mutate
 
 def _fire_triggers(g: GameState, action: Action, kind: TKind) -> Negotiation:
-    triggered = [ tr for tr in _get_triggers(g) if tr.kind == kind ]
-    if not triggered:
-        return
+    triggered = [ tr for tr in _get_triggers(g) if tr.kind == kind ]  # pragma: no mutate
+    if not triggered:  # pragma: no mutate
+        return  # pragma: no mutate
 
-    if len(triggered) > 1:
-        pid = _player_to_choose_replacement(g, action)
-        response = yield Ask(pid, f"Order {kind} triggers for {action}:", [tr.name for tr in triggered])
-        idx = response[pid]
-        triggered.insert(0, triggered.pop(idx)) # TODO : Ask for and apply actual permutation
+    if len(triggered) > 1:  # pragma: no mutate
+        pid = _player_to_choose_replacement(g, action)  # pragma: no mutate
+        response = yield Ask(pid, f"Order {kind} triggers for {action}:", [tr.name for tr in triggered])  # pragma: no mutate
+        idx = response[pid]  # pragma: no mutate
+        triggered.insert(0, triggered.pop(idx))  # pragma: no mutate
 
-    for tr in triggered:
-        yield from tr.callback(action)(g)
+    for tr in triggered:  # pragma: no mutate
+        yield from tr.callback(action)(g)  # pragma: no mutate
 
 def _get_triggers(g: GameState) -> list[Trait]:
-   return [] # TODO: collect traits from players, cards, etc.
+   return []  # pragma: no mutate

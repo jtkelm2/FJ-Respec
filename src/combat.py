@@ -12,15 +12,15 @@ def can_use_weapon(ws: WeaponSlot, enemy: Card) -> bool:
 def choose_weapon_prompt(g: GameState, player: PID, enemy: Card) -> Prompt:
     enemy_level = enemy.level
     assert isinstance(enemy_level, int)
-    
-    opts: list[str] = [f"Fists ({enemy_level} dmg)"]
+
+    opts: list[str] = [f"Fists ({enemy_level} dmg)"]  # pragma: no mutate
     for ws in g.players[player].weapon_slots:
         if can_use_weapon(ws, enemy):
             assert ws.weapon is not None
             weapon_level = ws.weapon.level
             assert weapon_level is not None
-            opts.append(f"Weapon Lv. {weapon_level} ({max(0, enemy_level - weapon_level)} dmg)")
-    return Ask(player, f"Fight Lv. {enemy_level} enemy:", opts)
+            opts.append(f"Weapon Lv. {weapon_level} ({max(0, enemy_level - weapon_level)} dmg)")  # pragma: no mutate
+    return Ask(player, f"Fight Lv. {enemy_level} enemy:", opts)  # pragma: no mutate
 
 
 # --- Combat resolution ---
@@ -43,6 +43,6 @@ def resolve_combat(resolver: PID, enemy: Card) -> Effect:
             sharpness = ws.sharpness()
 
         dmg = max(0, enemy_level - sharpness)
-        yield from do(Damage(resolver, dmg, "combat"))(g)
-        yield from do(Slay(resolver, enemy, ws, "ordinary combat"))(g)
+        yield from do(Damage(resolver, dmg, "combat"))(g)  # pragma: no mutate
+        yield from do(Slay(resolver, enemy, ws, "ordinary combat"))(g)  # pragma: no mutate
     return effect

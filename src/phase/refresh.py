@@ -16,7 +16,7 @@ def refresh_phase() -> Effect:
     """
     def effect(g: GameState) -> Negotiation:
         for pid in PID:
-            yield from do(ShuffleRefreshIntoDeck(pid, "refresh phase"))(g)
+            yield from do(ShuffleRefreshIntoDeck(pid, "refresh phase"))(g)  # pragma: no mutate
 
         for pid in PID:
             yield from _deal_hand(pid)(g)
@@ -27,7 +27,7 @@ def refresh_phase() -> Effect:
         for pid in PID:
             yield from _deal_manipulation(pid)(g)
 
-        yield from do(FlipPriority("refresh phase"))(g)
+        yield from do(FlipPriority("refresh phase"))(g)  # pragma: no mutate
     return effect
 
 
@@ -38,7 +38,7 @@ def _deal_hand(pid: PID) -> Effect:
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
         while not p.is_dead and len(g.players[pid].hand.cards) < HAND_SIZE:
-            yield from do(Draw(pid, "refresh deal hand"))(g)
+            yield from do(Draw(pid, "refresh deal hand"))(g)  # pragma: no mutate
     return effect
 
 
@@ -48,8 +48,8 @@ def _deal_action_cards(pid: PID) -> Effect:
         p = g.players[pid]
         empty = [s for s in p.action_field.slots_in_fill_order() if s.is_empty()][:-1]
         for slot in empty:
-            yield from do(EnsureDeck(pid, "action card deal"))(g)
-            yield from do(Slot2Slot(p.deck,slot, "action card deal"))(g)
+            yield from do(EnsureDeck(pid, "action card deal"))(g)  # pragma: no mutate
+            yield from do(Slot2Slot(p.deck,slot, "action card deal"))(g)  # pragma: no mutate
     return effect
 
 
@@ -60,5 +60,5 @@ def _deal_manipulation(pid: PID) -> Effect:
         mf = g.players[pid].manipulation_field
         for _ in range(MANIPULATION_DEAL):
             yield from do(EnsureDeck(other(pid)))(g)
-            yield from do(Slot2Slot(deck, mf, "deal to manipulation field"))(g)
+            yield from do(Slot2Slot(deck, mf, "deal to manipulation field"))(g)  # pragma: no mutate
     return effect

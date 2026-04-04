@@ -140,3 +140,27 @@ class TestCanUseWeapon:
     def test_usability_at_boundary(self, sharp, elv, expected):
         ws = _armed(sharp)
         assert can_use_weapon(ws, enemy(elv)) == expected
+
+
+# ---------- weapon slot indexing ----------
+
+class TestWeaponSlotSelection:
+
+    def test_second_weapon_slot_selected_by_choice_2(self):
+        """Kills mutant: weapon_slots[choice-1] -> weapon_slots[choice-2].
+
+        With 2 weapon slots and choice=2, choice-1=1 (correct) vs choice-2=0 (wrong).
+        The two weapons have different sharpness, so damage differs.
+        """
+        g = create_initial_state(seed=42)
+        e = enemy(10)
+        g.players[PID.RED].hand.slot(e)
+
+        ws0 = _armed(3)   # sharpness 3 -> 7 damage
+        ws1 = _armed(9)   # sharpness 9 -> 1 damage
+        g.players[PID.RED].weapon_slots = [ws0, ws1]
+
+        # choice=2 should select ws1 (index 1)
+        run(g, resolve_combat(PID.RED, e), interp(2))
+        assert g.players[PID.RED].hp == 20 - 1  # 10 - 9 = 1 damage
+        assert e in ws1.killstack.cards

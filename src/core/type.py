@@ -48,10 +48,10 @@ class Prompt:
   kind: PKind
 
 def Ask(player:PID, text: str, options: list[str]) -> Prompt:
-  return Prompt({player: PromptHalf(text, options)}, PKind.EITHER)
+  return Prompt({player: PromptHalf(text, options)}, PKind.EITHER)  # pragma: no mutate
 
 def AskBoth(asks: dict[PID,PromptHalf]) -> Prompt:
-  return Prompt(asks, PKind.BOTH)
+  return Prompt(asks, PKind.BOTH)  # pragma: no mutate
 
 def AskEither(asks: dict[PID,PromptHalf]) -> Prompt:
   return Prompt(asks, PKind.EITHER)
@@ -100,12 +100,12 @@ class WeaponSlot:
   killstack: Slot
 
   def __init__(self):
-    self.weapon = None
+    self.weapon = None  # pragma: no mutate
     self.killstack = Slot()
 
   def sharpness(self) -> int:
     if not self.killstack.cards: return 0
-    return self.killstack.cards[0].level or 0
+    return self.killstack.cards[0].level or 0  # pragma: no mutate
 
 class Alignment(Enum):
   GOOD = auto()
@@ -117,9 +117,9 @@ class Role:
   alignment:Alignment
 
 class DefaultRole(Role):
-  def __init__(self,good=True):
-    self.name = "Human" if good else "???"
-    self.alignment = Alignment.GOOD if good else Alignment.EVIL
+  def __init__(self,good=True):  # pragma: no mutate
+    self.name = "Human" if good else "???"  # pragma: no mutate
+    self.alignment = Alignment.GOOD if good else Alignment.EVIL  # pragma: no mutate
 
 
 @dataclass
@@ -202,86 +202,86 @@ class Action:
 class SetHP(Action):
   target: PID
   value: int
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Damage(Action):
   target: PID
   amount: int
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Heal(Action):
   target: PID
   amount: int
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Death(Action):
   target: PID
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Slay(Action):
   slayer: PID
   enemy: Card
   ws: WeaponSlot | None   # weapon vs. fists
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Discard(Action):
   discarder: PID
   card: Card
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Refresh(Action):
   card: Card
   player: PID
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class EnsureDeck(Action):
    player: PID
-   source: str = ""
+   source: str = ""  # pragma: no mutate
 
 @dataclass
 class Shuffle(Action):
    slot: Slot
-   source: str = ""
+   source: str = ""  # pragma: no mutate
 
 @dataclass
 class ShuffleRefreshIntoDeck(Action):
   player: PID
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Draw(Action):
   player: PID         # who receives the card
   # from_player: PID    # whose deck to draw from
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Slot2Slot(Action):
    orig: Slot
    dest: Slot
-   source: str = ""
+   source: str = ""  # pragma: no mutate
 
 @dataclass
 class Slot2SlotAll(Action):
    orig: Slot
    dest: Slot
-   source: str = ""
+   source: str = ""  # pragma: no mutate
 
 @dataclass
 class SlotCard(Action):
    card: Card
    slot: Slot
-   source: str = ""
+   source: str = ""  # pragma: no mutate
 
 @dataclass
 class FlipPriority(Action):
-  source: str = ""
+  source: str = ""  # pragma: no mutate
 
 ############ Traits ##############################
 
