@@ -33,7 +33,7 @@ def create_initial_state(seed: int | None = None) -> GameState:
         rng=rng,
         priority=rng.choice([PID.RED, PID.BLUE]),  # pragma: no mutate
         players={PID.RED: red, PID.BLUE: blue},
-        guard_deck=Slot(guards),
+        guard_deck=Slot(guards),  # pragma: no mutate
         action_field=ActionField(),
     )
 
