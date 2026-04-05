@@ -12,7 +12,7 @@ from combat import can_use_weapon
 from cards import enemy, weapon, food, role_card
 from phase.action import (
     action_phase, _resolve_slot,
-    _is_first_slot, _legal_slot_choices, _action_play,
+    _legal_slot_choices, _action_play,
     _offer_last_resort, _run, _call_guards, _find_role_card,
     DISTANCE_PENALTY,
 )
@@ -35,18 +35,18 @@ def _armed(level, sharpness_level=0):
 class TestIsFirstSlot:
 
     def test_empty_slot_not_first(self):
-        assert not _is_first_slot(Slot())
+        assert not Slot().is_first
 
     def test_slot_with_non_first_card(self):
         e = enemy(3)
         s = Slot([e])
-        assert not _is_first_slot(s)
+        assert not s.is_first
 
     def test_slot_with_first_card(self):
         from core.type import Card
         c = Card("first_enemy", "First Enemy", "", 5, (CardType.ENEMY,), False, True)
         s = Slot([c])
-        assert _is_first_slot(s)
+        assert s.is_first
 
 
 # ── Resolve action: food ──────────────────────────────────────

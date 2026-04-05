@@ -65,9 +65,13 @@ class Slot:
     self._cards = []
     if cards is not None: self.slot(*cards)
   
-  @property
+  @property   # property metadata thwarts attempts to directly modify cards; use API instead
   def cards(self):
     return self._cards
+  
+  @property
+  def is_first(self) -> bool:
+    return any(card.is_first for card in self.cards)
 
   def deslot(self, *cards:Card):
     for card in cards:

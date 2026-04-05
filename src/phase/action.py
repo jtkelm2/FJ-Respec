@@ -158,10 +158,6 @@ def _call_guards(pid: PID) -> Effect:
 
 # ── Slot selection ────────────────────────────────────────────
 
-def _is_first_slot(slot: Slot) -> bool:
-    return any(c.is_first for c in slot.cards)
-
-
 def _legal_slot_choices(
     pid: PID, g: GameState
 ) -> list[tuple[Slot, str, bool, bool]]:
@@ -178,7 +174,7 @@ def _legal_slot_choices(
     for slot, label in _own_names:
         if slot.is_empty():
             continue
-        if g.players[pid].first_play_done and _is_first_slot(slot):
+        if g.players[pid].first_play_done and slot.is_first:
             continue
         choices.append((slot, label, False, False))
 
@@ -193,7 +189,7 @@ def _legal_slot_choices(
     for slot, label, distant in _opp_names:
         if slot.is_empty():
             continue
-        if g.players[pid].first_play_done and _is_first_slot(slot):
+        if g.players[pid].first_play_done and slot.is_first:
             continue
         choices.append((slot, label, True, distant))
 
