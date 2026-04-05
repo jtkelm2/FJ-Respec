@@ -248,9 +248,43 @@ def _resolve_slot(pid: PID, slot: Slot) -> Effect:
     """Resolve the top card of the slot repeatedly until it is empty."""
     def effect(g: GameState) -> Negotiation:
         while not slot.is_empty():
+            yield from _offer_voluntary_discard(pid)(g)
             yield from do(Resolve(pid, slot.cards[0], "action play"))(g)  # pragma: no mutate
             if g.players[pid].is_dead:
                 return
+        yield from _offer_voluntary_discard(pid)(g)
+    return effect
+
+
+def _offer_voluntary_discard(pid: PID) -> Effect:
+    """Offer the player a chance to discard equipment or weapons."""
+    def effect(g: GameState) -> Negotiation:
+        p = g.players[pid]
+        while True:
+            discardable: list[Card] = list(p.equipment.cards)
+            weapon_slots: dict[int, WeaponSlot] = {}
+            for ws in p.weapon_slots:
+                if ws.weapon is not None:
+                    discardable.append(ws.weapon)
+                    weapon_slots[id(ws.weapon)] = ws
+
+            if not discardable:
+                return
+
+            options = [c.display_name for c in discardable] + ["Done"]  # pragma: no mutate
+            response = yield Ask(pid, "Voluntarily discard?", options)  # pragma: no mutate
+            choice = response[pid]
+
+            if choice >= len(discardable):
+                return
+
+            card = discardable[choice]
+            ws = weapon_slots.get(id(card))
+            yield from do(Discard(pid, card, "voluntary discard"))(g)  # pragma: no mutate
+            if ws is not None:
+                for kill_card in list(ws.killstack.cards):
+                    yield from do(Discard(pid, kill_card, "voluntary discard kill pile"))(g)  # pragma: no mutate
+
     return effect
 
 

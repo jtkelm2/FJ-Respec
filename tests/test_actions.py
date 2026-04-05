@@ -7,9 +7,10 @@ Discard / Refresh -> SlotCard into the appropriate pile
 """
 
 from core.type import (
-    PID, Slot, Damage,
+    PID, Slot, Damage, CardType,
     Draw, EnsureDeck, SlotCard, Slot2Slot, Slot2SlotAll,
     FlipPriority, Refresh, Discard, Shuffle,
+    TransferHP, StealHP, Resolve,
 )
 from core.engine import run, do
 from helpers import interp
@@ -190,3 +191,90 @@ class TestDiscardAction:
 
         assert c in g.players[PID.RED].discard.cards
         assert c not in g.players[PID.RED].hand.cards
+
+
+# ---------- TransferHP ----------
+
+class TestTransferHP:
+
+    def test_basic_transfer(self):
+        """Player takes damage, target heals for the same amount."""
+        g = create_initial_state(seed=42)
+        g.players[PID.RED].hp = 15
+        g.players[PID.BLUE].hp = 10
+
+        run(g, do(TransferHP(PID.RED, PID.BLUE, 5, "test")), interp())
+        assert g.players[PID.RED].hp == 10
+        assert g.players[PID.BLUE].hp == 15
+
+    def test_transfer_blocked_by_floor(self):
+        """Damage blocked by hp_floor → heal only for unblocked amount."""
+        g = create_initial_state(seed=42)
+        g.players[PID.RED].hp = 8
+        g.players[PID.RED].hp_floor = 5
+        g.players[PID.BLUE].hp = 10
+
+        run(g, do(TransferHP(PID.RED, PID.BLUE, 10, "test")), interp())
+        assert g.players[PID.RED].hp == 5   # floored
+        assert g.players[PID.BLUE].hp == 13  # healed by 3 (8-5), not 10
+
+    def test_transfer_zero_damage_no_heal(self):
+        """If floor prevents all damage, no healing occurs."""
+        g = create_initial_state(seed=42)
+        g.players[PID.RED].hp = 5
+        g.players[PID.RED].hp_floor = 5
+        g.players[PID.BLUE].hp = 10
+
+        run(g, do(TransferHP(PID.RED, PID.BLUE, 3, "test")), interp())
+        assert g.players[PID.RED].hp == 5
+        assert g.players[PID.BLUE].hp == 10
+
+
+# ---------- StealHP ----------
+
+class TestStealHP:
+
+    def test_basic_steal(self):
+        """Target takes damage, player heals for the same amount."""
+        g = create_initial_state(seed=42)
+        g.players[PID.RED].hp = 10
+        g.players[PID.BLUE].hp = 15
+
+        run(g, do(StealHP(PID.RED, PID.BLUE, 5, "test")), interp())
+        assert g.players[PID.BLUE].hp == 10
+        assert g.players[PID.RED].hp == 15
+
+    def test_steal_blocked_by_target_floor(self):
+        """Target's floor blocks damage → player heals only unblocked."""
+        g = create_initial_state(seed=42)
+        g.players[PID.RED].hp = 10
+        g.players[PID.BLUE].hp = 8
+        g.players[PID.BLUE].hp_floor = 5
+
+        run(g, do(StealHP(PID.RED, PID.BLUE, 10, "test")), interp())
+        assert g.players[PID.BLUE].hp == 5   # floored
+        assert g.players[PID.RED].hp == 13   # healed by 3 (8-5), not 10
+
+    def test_steal_zero_damage_no_heal(self):
+        g = create_initial_state(seed=42)
+        g.players[PID.RED].hp = 10
+        g.players[PID.BLUE].hp = 5
+        g.players[PID.BLUE].hp_floor = 5
+
+        run(g, do(StealHP(PID.RED, PID.BLUE, 3, "test")), interp())
+        assert g.players[PID.BLUE].hp == 5
+        assert g.players[PID.RED].hp == 10
+
+
+# ---------- Resolve EVENT ----------
+
+class TestResolveEvent:
+
+    def test_event_card_discarded(self):
+        g = create_initial_state(seed=42)
+        from core.type import Card
+        event = Card("festival", "Festival", "", None, (CardType.EVENT,), False, False)
+        g.players[PID.RED].hand.slot(event)
+
+        run(g, do(Resolve(PID.RED, event)), interp())
+        assert event in g.players[PID.RED].discard.cards

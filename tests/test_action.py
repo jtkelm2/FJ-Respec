@@ -770,6 +770,91 @@ class TestResolveTopOfDeck:
         assert f in g.players[PID.RED].discard.cards
 
 
+# ── Voluntary discarding ──────────────────────────────────────
+
+class TestVoluntaryDiscard:
+
+    def test_no_prompt_when_nothing_to_discard(self):
+        """No equipment or weapons → no prompt, no interpreter choices consumed."""
+        g = minimal_game()
+        slot = g.players[PID.RED].action_field.top_distant
+        slot.slot(food(1))
+
+        # Only the Resolve happens — no voluntary discard prompts
+        run(g, _resolve_slot(PID.RED, slot), interp())
+        assert slot.is_empty()
+
+    def test_discard_equipment_between_resolutions(self):
+        """Player can discard equipment before resolving a card."""
+        g = minimal_game()
+        from core.type import Card
+        eq = Card("helm", "Helm", "", None, (CardType.EQUIPMENT,), False, False)
+        g.players[PID.RED].equipment.slot(eq)
+        slot = g.players[PID.RED].action_field.top_distant
+        slot.slot(food(3))
+        g.players[PID.RED].hp = 10
+
+        # Voluntary discard: pick equipment(0), then Done(0 — now no items left)
+        # Actually after discarding, no more discardable items → auto-skip
+        # Then Resolve food (no prompt).
+        # Then post-resolution voluntary discard: nothing left → auto-skip.
+        run(g, _resolve_slot(PID.RED, slot), interp(0))
+
+        assert eq in g.players[PID.RED].discard.cards
+        assert g.players[PID.RED].hp == 13  # healed by food
+
+    def test_done_skips_discard(self):
+        """Choosing Done proceeds without discarding."""
+        g = minimal_game()
+        from core.type import Card
+        eq = Card("helm", "Helm", "", None, (CardType.EQUIPMENT,), False, False)
+        g.players[PID.RED].equipment.slot(eq)
+        slot = g.players[PID.RED].action_field.top_distant
+        slot.slot(food(1))
+
+        # Pre-resolution: Done(1), then Resolve food, post-resolution: Done(1)
+        run(g, _resolve_slot(PID.RED, slot), interp(1, 1))
+
+        assert eq in g.players[PID.RED].equipment.cards  # not discarded
+
+    def test_discard_weapon_also_discards_kill_pile(self):
+        """Voluntarily discarding a weapon also discards its kill pile."""
+        g = minimal_game()
+        w = weapon(5)
+        k = enemy(3)
+        ws = g.players[PID.RED].weapon_slots[0]
+        ws._weapon_slot.slot(w)
+        ws.killstack.slot(k)
+        slot = g.players[PID.RED].action_field.top_distant
+        slot.slot(food(1))
+
+        # Voluntary discard: pick weapon(0), then Resolve food, post: nothing left
+        run(g, _resolve_slot(PID.RED, slot), interp(0))
+
+        assert w in g.players[PID.RED].discard.cards
+        assert k in g.players[PID.RED].discard.cards
+        assert ws.weapon is None
+        assert ws.killstack.is_empty()
+
+    def test_discard_multiple_items(self):
+        """Player can discard multiple items in one voluntary discard window."""
+        g = minimal_game()
+        from core.type import Card
+        eq1 = Card("helm", "Helm", "", None, (CardType.EQUIPMENT,), False, False)
+        eq2 = Card("boots", "Boots", "", None, (CardType.EQUIPMENT,), False, False)
+        g.players[PID.RED].equipment.slot(eq1)
+        g.players[PID.RED].equipment.slot(eq2)
+        slot = g.players[PID.RED].action_field.top_distant
+        slot.slot(food(1))
+
+        # Pre-resolution: discard first(0), then discard first again(0), then nothing left → auto-skip
+        # Resolve food, post-resolution: nothing left → auto-skip
+        run(g, _resolve_slot(PID.RED, slot), interp(0, 0))
+
+        assert eq1 in g.players[PID.RED].discard.cards
+        assert eq2 in g.players[PID.RED].discard.cards
+
+
 # ── count_all_cards with weapons ──────────────────────────────
 
 class TestCountAllCardsWithWeapons:

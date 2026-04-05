@@ -151,6 +151,20 @@ def _apply_action(action: Action) -> Effect:
                         yield from do(Discard(player, ws.weapon, "disarm weapon"))(g)  # pragma: no mutate
                     for kill_card in list(ws.killstack.cards):
                         yield from do(Discard(player, kill_card, "disarm kill pile"))(g)  # pragma: no mutate
+            case TransferHP(player, target, amount, source):
+                p = g.players[player]
+                old_hp = p.hp
+                yield from do(Damage(player, amount, source))(g)
+                actual = old_hp - p.hp
+                if actual > 0:
+                    yield from do(Heal(target, actual, source))(g)
+            case StealHP(player, target, amount, source):
+                t = g.players[target]
+                old_hp = t.hp
+                yield from do(Damage(target, amount, source))(g)
+                actual = old_hp - t.hp
+                if actual > 0:
+                    yield from do(Heal(player, actual, source))(g)
             case Resolve(resolver, card, source):
                 from combat import resolve_combat
                 if card.is_type(CardType.ENEMY):
@@ -161,6 +175,8 @@ def _apply_action(action: Action) -> Effect:
                     yield from do(Wield(resolver, card, "resolve weapon"))(g)  # pragma: no mutate
                 elif card.is_type(CardType.EQUIPMENT):
                     yield from do(Equip(resolver, card, "resolve equipment"))(g)  # pragma: no mutate
+                elif card.is_type(CardType.EVENT):
+                    yield from do(Discard(resolver, card, "resolve event"))(g)  # pragma: no mutate
             case Eat(player, card, source):
                 p = g.players[player]
                 if not p.is_satiated:

@@ -8,6 +8,7 @@ class CardType(Enum):
   EQUIPMENT = auto()
   ENEMY = auto()
   FOOD = auto()
+  EVENT = auto()
 
 @dataclass(eq=False)
 class Card:
@@ -365,6 +366,20 @@ class SlotCard(Action):
    card: Card
    slot: Slot
    source: str = ""  # pragma: no mutate
+
+@dataclass
+class TransferHP(Action):
+  player: PID
+  target: PID
+  amount: int
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class StealHP(Action):
+  player: PID
+  target: PID
+  amount: int
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Equip(Action):
