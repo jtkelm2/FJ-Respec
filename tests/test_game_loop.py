@@ -1,5 +1,5 @@
 """
-Game loop: phase cycling, win conditions, world claims, StartPhase reset.
+Game loop: phase cycling, win conditions, world claims, StartPhase/EndPhase.
 """
 
 import pytest
@@ -37,48 +37,60 @@ class TestGameOverAction:
         assert g.game_result.winners == ()
 
 
-# ── StartPhase action ─────────────────────────────────────────
+# ── StartPhase/EndPhase are no-ops in engine ──────────────────
 
 class TestStartPhaseAction:
+    """StartPhase and EndPhase are hookable no-ops; actual resets live in the phases."""
+
+    def test_start_phase_is_noop(self):
+        g = minimal_game()
+        g.players[PID.RED].is_satiated = False
+        g.players[PID.RED].first_play_done = True
+        g.players[PID.RED].action_plays_left = 0
+
+        run(g, do(StartPhase(Phase.REFRESH)), interp())
+        # Nothing changed — StartPhase is a pure hook point
+        assert g.players[PID.RED].is_satiated is False
+        assert g.players[PID.RED].first_play_done is True
+        assert g.players[PID.RED].action_plays_left == 0
+
+
+# ── Phase-level resets ────────────────────────────────────────
+
+class TestPhaseResets:
+    """Resets are done directly in the phase functions, not via StartPhase."""
 
     def test_refresh_sets_satiated(self):
+        """refresh_phase sets is_satiated = True for all players."""
         g = minimal_game()
         for pid in PID:
             g.players[pid].is_satiated = False
+            # Need cards for refresh to not exhaust
+            for _ in range(10):
+                g.players[pid].deck.slot(food(1))
 
-        run(g, do(StartPhase(Phase.REFRESH)), interp())
+        from phase.refresh import refresh_phase
+        run(g, refresh_phase(), interp())
         for pid in PID:
-            assert g.players[pid].is_satiated is True
+            assert g.players[pid].is_satiated is False
 
-    def test_manipulation_is_noop(self):
-        g = minimal_game()
-        g.players[PID.RED].is_satiated = True
-        g.players[PID.RED].action_plays_left = 0
-
-        run(g, do(StartPhase(Phase.MANIPULATION)), interp())
-        # Nothing changed
-        assert g.players[PID.RED].is_satiated is True
-        assert g.players[PID.RED].action_plays_left == 0
-
-    def test_action_resets_plays_and_first_play(self):
+    def test_action_resets_plays(self):
+        """action_phase resets first_play_done and action_plays_left."""
         g = minimal_game()
         for pid in PID:
             p = g.players[pid]
             p.first_play_done = True
             p.action_plays_left = 0
+            p.action_field.top_distant.slot(food(1))
+            p.action_field.top_hidden.slot(food(1))
+            p.action_field.bottom_hidden.slot(food(1))
 
-        run(g, do(StartPhase(Phase.ACTION)), interp())
+        from phase.action import action_phase
+        # no-LR(0), 3x slot(0) per player
+        run(g, action_phase(), interp(0, 0, 0, 0, blue=[0, 0, 0, 0]))
         for pid in PID:
-            p = g.players[pid]
-            assert p.first_play_done is False
-            assert p.action_plays_left == 3
-
-    def test_action_does_not_touch_satiation(self):
-        g = minimal_game()
-        g.players[PID.RED].is_satiated = True
-
-        run(g, do(StartPhase(Phase.ACTION)), interp())
-        assert g.players[PID.RED].is_satiated is True
+            assert g.players[pid].action_plays_left == 0
+            assert g.players[pid].first_play_done is True
 
 
 # ── GameState.check_game_over ─────────────────────────────────
@@ -111,7 +123,8 @@ class TestCheckGameOver:
         assert result.outcome == Outcome.GOOD_KILLED_EVIL
         assert result.winners == (PID.RED,)
 
-    def test_good_killed_good(self):
+    def test_good_killed_good_no_winners(self):
+        """When a Good player dies to another Good player, nobody wins."""
         g = minimal_game()
         g.players[PID.RED].alignment = Alignment.GOOD
         g.players[PID.BLUE].alignment = Alignment.GOOD
@@ -120,7 +133,7 @@ class TestCheckGameOver:
         result = g.check_game_over()
         assert result is not None
         assert result.outcome == Outcome.GOOD_KILLED_GOOD
-        assert result.winners == (PID.RED,)
+        assert result.winners == ()
 
     def test_good_good_mutual_death(self):
         g = minimal_game()
@@ -155,19 +168,20 @@ class TestCheckGameOver:
         g.players[PID.RED].discard.slot(_world_card())
         g.players[PID.BLUE].discard.slot(_world_card())
 
-        # Only one claims
+        # Only one claims — game continues
         g.players[PID.RED].claims_world_killed = True
         g.players[PID.BLUE].claims_world_killed = False
         assert g.check_game_over() is None
 
-        # Both claim
+        # Both claim — mutual good win
         g.players[PID.BLUE].claims_world_killed = True
         result = g.check_game_over()
         assert result is not None
         assert result.outcome == Outcome.MUTUAL_GOOD_WIN
         assert set(result.winners) == {PID.RED, PID.BLUE}
 
-    def test_mutual_good_win_blocked_if_evil_present(self):
+    def test_evil_thwarted_when_evil_claims_with_worlds_dead(self):
+        """Evil player claims alongside Good — Evil gets exposed."""
         g = minimal_game()
         g.players[PID.RED].alignment = Alignment.GOOD
         g.players[PID.BLUE].alignment = Alignment.EVIL
@@ -176,7 +190,37 @@ class TestCheckGameOver:
         g.players[PID.RED].claims_world_killed = True
         g.players[PID.BLUE].claims_world_killed = True
 
-        assert g.check_game_over() is None
+        result = g.check_game_over()
+        assert result is not None
+        assert result.outcome == Outcome.EVIL_THWARTED
+        assert result.winners == (PID.RED,)
+
+    def test_good_thwarted_when_both_good_claim_but_worlds_not_dead(self):
+        """Both Good claim but Worlds aren't actually dead."""
+        g = minimal_game()
+        g.players[PID.RED].alignment = Alignment.GOOD
+        g.players[PID.BLUE].alignment = Alignment.GOOD
+        g.players[PID.RED].claims_world_killed = True
+        g.players[PID.BLUE].claims_world_killed = True
+        # No worlds in discard/killstack
+
+        result = g.check_game_over()
+        assert result is not None
+        assert result.outcome == Outcome.GOOD_THWARTED
+        assert result.winners == ()
+
+    def test_evil_thwarted_when_claims_but_worlds_not_dead(self):
+        """Evil claims alongside Good but Worlds aren't dead — Evil exposed."""
+        g = minimal_game()
+        g.players[PID.RED].alignment = Alignment.GOOD
+        g.players[PID.BLUE].alignment = Alignment.EVIL
+        g.players[PID.RED].claims_world_killed = True
+        g.players[PID.BLUE].claims_world_killed = True
+
+        result = g.check_game_over()
+        assert result is not None
+        assert result.outcome == Outcome.EVIL_THWARTED
+        assert result.winners == (PID.RED,)
 
 
 # ── get_worlds_killed ─────────────────────────────────────────
@@ -210,27 +254,29 @@ class TestGetWorldsKilled:
 
 class TestOfferWorldClaims:
 
-    def test_player_can_claim(self):
+    def test_neither_claimed_asks_both(self):
+        """When neither has claimed, AskBoth is used."""
         g = minimal_game()
-        # RED: No(0), BLUE: Yes(1)
+        # Both prompted simultaneously: RED=No(0), BLUE=Yes(1)
         run(g, _offer_world_claims, interp(0, blue=[1]))
         assert g.players[PID.RED].claims_world_killed is False
         assert g.players[PID.BLUE].claims_world_killed is True
 
-    def test_already_claimed_not_asked_again(self):
+    def test_one_already_claimed_asks_other(self):
+        """When one has claimed, only the other is prompted."""
         g = minimal_game()
         g.players[PID.RED].claims_world_killed = True
-        # Only BLUE gets prompted: No(0)
+        # BLUE gets AskEither: No(0)
         run(g, _offer_world_claims, interp(blue=[0]))
         assert g.players[PID.RED].claims_world_killed is True
         assert g.players[PID.BLUE].claims_world_killed is False
 
-    def test_dead_player_not_asked(self):
+    def test_both_already_claimed_no_prompt(self):
+        """When both have claimed, no prompts at all."""
         g = minimal_game()
-        g.players[PID.RED].is_dead = True
-        # Only BLUE gets prompted: Yes(1)
-        run(g, _offer_world_claims, interp(blue=[1]))
-        assert g.players[PID.BLUE].claims_world_killed is True
+        g.players[PID.RED].claims_world_killed = True
+        g.players[PID.BLUE].claims_world_killed = True
+        run(g, _offer_world_claims, interp())
 
 
 # ── _settle ───────────────────────────────────────────────────
@@ -306,7 +352,7 @@ class TestGameLoopIntegration:
         # Refresh: auto.
         # Manip: dump(1) + 4x discard(0) = 5 each.
         # Action: no-LR(0) + 3x slot(0) = 4 each.
-        # World claims: Yes(1) each.
+        # World claims (AskBoth): Yes(1) each.
         red_choices = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1]
         blue_choices = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1]
 

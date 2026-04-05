@@ -577,58 +577,25 @@ class TestActionPhaseIntegration:
         assert elusive in g.players[PID.RED].refresh.cards
         assert af.bottom_distant.is_empty()
 
-    def test_action_plays_left_respected(self):
-        """Custom action_plays_left is decremented and respected."""
+    def test_action_phase_resets_plays_to_three(self):
+        """action_phase always resets action_plays_left to 3 at the start."""
         g = minimal_game()
         g.priority = PID.RED
         for pid in PID:
-            g.players[pid].action_plays_left = 1
-            g.players[pid].action_field.top_distant.slot(food(1))
-            g.players[pid].action_field.top_hidden.slot(food(2))
+            g.players[pid].action_plays_left = 0  # pre-set to 0
+            af = g.players[pid].action_field
+            af.top_distant.slot(food(1))
+            af.top_hidden.slot(food(1))
+            af.bottom_hidden.slot(food(1))
 
-        # Only 1 play each: last resort(0), slot 0 for RED; last resort(0), slot 0 for BLUE
-        run(g, action_phase(), interp(0, 0, blue=[0, 0]))
-
+        # Despite pre-setting to 0, both get 3 plays
+        # no-LR(0) + 3x slot(0) per player
+        run(g, action_phase(), interp(0, 0, 0, 0, blue=[0, 0, 0, 0]))
         for pid in PID:
             assert g.players[pid].action_plays_left == 0
-            # Only 1 slot resolved, 1 still has a card
-            assert not g.players[pid].action_field.top_hidden.is_empty()
-
-
-# ── Asymmetric plays / skip branch ────────────────────────────
-
-class TestAsymmetricPlays:
-    """Kills mutants on the inner skip branch of action_phase."""
-
-    def test_finished_player_skipped_while_other_plays(self):
-        """RED has 0 plays, BLUE has 1. RED must be skipped, BLUE plays."""
-        g = minimal_game()
-        g.priority = PID.RED
-        g.players[PID.RED].action_plays_left = 0
-        g.players[PID.RED].first_play_done = True
-        g.players[PID.BLUE].action_plays_left = 1
-        g.players[PID.BLUE].action_field.top_distant.slot(food(2))
-
-        # BLUE: last resort(0), slot 0
-        run(g, action_phase(), interp(blue=[0, 0]))
-        assert g.players[PID.BLUE].action_plays_left == 0
-        assert g.players[PID.BLUE].action_field.top_distant.is_empty()
-
-    def test_finished_player_skipped_repeatedly(self):
-        """RED has 0 plays, BLUE has 2. RED skipped twice."""
-        g = minimal_game()
-        g.priority = PID.RED
-        g.players[PID.RED].action_plays_left = 0
-        g.players[PID.RED].first_play_done = True
-        g.players[PID.BLUE].action_plays_left = 2
-        g.players[PID.BLUE].action_field.top_distant.slot(food(1))
-        g.players[PID.BLUE].action_field.top_hidden.slot(food(2))
-
-        # BLUE: last resort(0), slot 0, slot 0
-        run(g, action_phase(), interp(blue=[0, 0, 0]))
-        assert g.players[PID.BLUE].action_plays_left == 0
-        assert g.players[PID.BLUE].action_field.top_distant.is_empty()
-        assert g.players[PID.BLUE].action_field.top_hidden.is_empty()
+            assert g.players[pid].action_field.top_distant.is_empty()
+            assert g.players[pid].action_field.top_hidden.is_empty()
+            assert g.players[pid].action_field.bottom_hidden.is_empty()
 
 
 # ── _offer_last_resort via integration ────────────────────────

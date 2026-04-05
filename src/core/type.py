@@ -245,7 +245,7 @@ class GameState:
         good = {pid : self.players[pid].alignment == Alignment.GOOD for pid in PID}
 
         if len(dead) == 2:
-            if all(good):
+            if all(good.values()):
                 return GameResult((), Outcome.GOOD_GOOD_MUTUAL_DEATH)
             else:
                 return GameResult((), Outcome.GOOD_EVIL_MUTUAL_DEATH)
@@ -267,11 +267,11 @@ class GameState:
            return None
 
         if not self.get_worlds_killed() >= 2:
-            if all(good):
+            if all(good.values()):
                 return GameResult((), Outcome.GOOD_THWARTED)
             return GameResult(tuple(pid for pid in PID if good[pid]), Outcome.EVIL_THWARTED)
            
-        if all(good):
+        if all(good.values()):
            return GameResult(tuple(PID), Outcome.MUTUAL_GOOD_WIN)
         return GameResult(tuple(pid for pid in PID if good[pid]), Outcome.EVIL_THWARTED)
 
