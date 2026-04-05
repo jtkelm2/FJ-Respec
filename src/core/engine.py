@@ -119,6 +119,55 @@ def _apply_action(action: Action) -> Effect:
             case Draw(player):
                 yield from do(EnsureDeck(other(player),"draw to hand"))(g)  # pragma: no mutate
                 yield from do(Slot2Slot(g.players[other(player)].deck, g.players[player].hand, "draw"))(g)  # pragma: no mutate
+            case Equip(player, card, source):
+                p = g.players[player]
+                while len(p.equipment.cards) >= p.max_equipment:
+                    response = yield Ask(player, "Equipment full. Discard which?", [c.display_name for c in p.equipment.cards])  # pragma: no mutate
+                    to_discard = p.equipment.cards[response[player]]
+                    yield from do(Discard(player, to_discard, "equip overflow"))(g)  # pragma: no mutate
+                yield from do(SlotCard(card, p.equipment, "equip"))(g)  # pragma: no mutate
+            case Wield(player, card, source):
+                p = g.players[player]
+                if len(p.weapon_slots) == 1:
+                    ws = p.weapon_slots[0]
+                else:
+                    opts = []  # pragma: no mutate
+                    for i, ws in enumerate(p.weapon_slots):
+                        if ws.weapon is not None:
+                            opts.append(f"Slot {i}: {ws.weapon.display_name}")  # pragma: no mutate
+                        else:
+                            opts.append(f"Slot {i}: Empty")  # pragma: no mutate
+                    response = yield Ask(player, "Wield in which weapon slot?", opts)  # pragma: no mutate
+                    ws = p.weapon_slots[response[player]]
+                if ws.weapon is not None:
+                    yield from do(Discard(player, ws.weapon, "wield old weapon"))(g)  # pragma: no mutate
+                for kill_card in list(ws.killstack.cards):
+                    yield from do(Discard(player, kill_card, "wield kill pile"))(g)  # pragma: no mutate
+                ws.wield(card)
+            case Disarm(player, source):
+                p = g.players[player]
+                for ws in p.weapon_slots:
+                    if ws.weapon is not None:
+                        yield from do(Discard(player, ws.weapon, "disarm weapon"))(g)  # pragma: no mutate
+                    for kill_card in list(ws.killstack.cards):
+                        yield from do(Discard(player, kill_card, "disarm kill pile"))(g)  # pragma: no mutate
+            case Resolve(resolver, card, source):
+                from combat import resolve_combat
+                if card.is_type(CardType.ENEMY):
+                    yield from resolve_combat(resolver, card)(g)
+                elif card.is_type(CardType.FOOD):
+                    yield from do(Eat(resolver, card, "resolve food"))(g)  # pragma: no mutate
+                elif card.is_type(CardType.WEAPON):
+                    yield from do(Wield(resolver, card, "resolve weapon"))(g)  # pragma: no mutate
+                elif card.is_type(CardType.EQUIPMENT):
+                    yield from do(Equip(resolver, card, "resolve equipment"))(g)  # pragma: no mutate
+            case Eat(player, card, source):
+                p = g.players[player]
+                if not p.is_satiated:
+                    assert card.level is not None
+                    yield from do(Heal(player, card.level, "food"))(g)  # pragma: no mutate
+                    p.is_satiated = True
+                yield from do(Discard(player, card, "food consumed"))(g)  # pragma: no mutate
             case FlipPriority():
                 g.priority = other(g.priority)
             case _:  # pragma: no mutate

@@ -35,11 +35,12 @@ def count_all_cards(g):
     for pid in PID:
         p = g.players[pid]
         for slot in [p.deck, p.refresh, p.discard, p.hand,
-                     p.manipulation_field, p.equipment]:
+                     p.sidebar, p.equipment]:
             total += len(slot.cards)
         for s in p.action_field.slots_in_fill_order():
             total += len(s.cards)
         for ws in p.weapon_slots:
+            total += len(ws._weapon_slot.cards)
             total += len(ws.killstack.cards)
     total += len(g.guard_deck.cards)
     for s in g.action_field.slots_in_fill_order():

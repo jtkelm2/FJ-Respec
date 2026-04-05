@@ -26,8 +26,6 @@ def refresh_phase() -> Effect:
 
         for pid in PID:
             yield from _deal_manipulation(pid)(g)
-
-        yield from do(FlipPriority("refresh phase"))(g)  # pragma: no mutate
     return effect
 
 
@@ -57,7 +55,7 @@ def _deal_manipulation(pid: PID) -> Effect:
     """Deal 2 manipulation cards from the OTHER player's deck."""
     def effect(g: GameState) -> Negotiation:
         deck = g.players[other(pid)].deck
-        mf = g.players[pid].manipulation_field
+        mf = g.players[pid].sidebar
         for _ in range(MANIPULATION_DEAL):
             yield from do(EnsureDeck(other(pid)))(g)
             yield from do(Slot2Slot(deck, mf, "deal to manipulation field"))(g)  # pragma: no mutate

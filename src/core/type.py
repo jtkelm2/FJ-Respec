@@ -96,16 +96,26 @@ class Slot:
      rng.shuffle(self._cards)
 
 class WeaponSlot:
-  weapon: Card | None
+  _weapon_slot: Slot
   killstack: Slot
 
   def __init__(self):
-    self.weapon = None  # pragma: no mutate
+    self._weapon_slot = Slot()
     self.killstack = Slot()
 
+  @property
+  def weapon(self) -> Card | None:
+    return None if self._weapon_slot.is_empty() else self._weapon_slot.cards[0]
+
+  def wield(self, card: Card):
+    """Place card as the weapon in this slot. Encapsulates _weapon_slot access."""
+    self._weapon_slot.slot(card)
+
   def sharpness(self) -> int:
-    if not self.killstack.cards: return 0
-    return self.killstack.cards[0].level or 0  # pragma: no mutate
+    if self.weapon is None: return 0
+    assert isinstance(self.weapon.level, int)
+    if not self.killstack.cards: return self.weapon.level
+    return min(self.weapon.level, self.killstack.cards[0].level or 0)  # pragma: no mutate
 
 class Alignment(Enum):
   GOOD = auto()
@@ -153,22 +163,21 @@ class PlayerState:
     refresh: Slot = field(default_factory=Slot)
     discard: Slot = field(default_factory=Slot)
     hand: Slot = field(default_factory=Slot)
-    manipulation_field: Slot = field(default_factory=Slot)
+    sidebar: Slot = field(default_factory=Slot)
 
     equipment: Slot = field(default_factory=Slot)
+    max_equipment: int = 2
     weapon_slots: list[WeaponSlot] = field(default_factory=lambda: [WeaponSlot()])
 
     # Per-action-phase tracking
-    # has_eaten_this_phase: bool = False
-    # action_plays_made: int = 0
-    # devil_used_this_phase: bool = False
-    # sun_used_this_phase: bool = False
+    is_satiated: bool = False
+    first_play_done: bool = False
+    action_plays_left: int = 3
 
     # active_traits: frozenset[Trait] = frozenset()
 
     # Flags
     is_dead: bool = False
-    # action_phase_over: bool = False
 
 @dataclass
 class GameState:
@@ -278,6 +287,35 @@ class SlotCard(Action):
    card: Card
    slot: Slot
    source: str = ""  # pragma: no mutate
+
+@dataclass
+class Equip(Action):
+  player: PID
+  card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class Wield(Action):
+  player: PID
+  card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class Disarm(Action):
+  player: PID
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class Resolve(Action):
+  resolver: PID
+  card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class Eat(Action):
+  player: PID
+  card: Card
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class FlipPriority(Action):

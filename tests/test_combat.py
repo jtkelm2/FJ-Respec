@@ -16,9 +16,12 @@ from phase.setup import create_initial_state
 
 
 def _armed(sharpness_level):
-    """Create a WeaponSlot with the given sharpness (killstack top level)."""
+    """Create a WeaponSlot with the given sharpness.
+
+    Weapon level matches sharpness_level so min(weapon, kill) = sharpness_level.
+    """
     ws = WeaponSlot()
-    ws.weapon = weapon(1)
+    ws._weapon_slot.slot(weapon(max(sharpness_level, 1)))
     if sharpness_level > 0:
         ws.killstack.slot(enemy(sharpness_level))
     return ws
@@ -118,19 +121,25 @@ class TestDamageMonotonicity:
 
 class TestCanUseWeapon:
 
-    def test_empty_killstack_zero_sharpness(self):
+    def test_empty_killstack_sharpness_equals_weapon_level(self):
         ws = WeaponSlot()
-        ws.weapon = weapon(1)
-        assert ws.sharpness() == 0
-        assert not can_use_weapon(ws, enemy(1))
+        ws._weapon_slot.slot(weapon(5))
+        assert ws.sharpness() == 5
+        assert can_use_weapon(ws, enemy(5))
 
-    def test_sharpness_tracks_killstack_top(self):
+    def test_sharpness_dulls_with_kills(self):
         ws = WeaponSlot()
-        ws.weapon = weapon(1)
+        ws._weapon_slot.slot(weapon(10))
         ws.killstack.slot(enemy(3))
-        assert ws.sharpness() == 3
+        assert ws.sharpness() == 3  # min(10, 3)
         ws.killstack.slot(enemy(7))
-        assert ws.sharpness() == 7  # new top
+        assert ws.sharpness() == 7  # min(10, 7), new top
+
+    def test_sharpness_capped_by_weapon_level(self):
+        ws = WeaponSlot()
+        ws._weapon_slot.slot(weapon(5))
+        ws.killstack.slot(enemy(10))
+        assert ws.sharpness() == 5  # can't exceed weapon level
 
     @pytest.mark.parametrize("sharp,elv,expected", [
         (5, 5, True),   # exact match

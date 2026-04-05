@@ -89,7 +89,7 @@ class TestManipulate:
         p = g.players[PID.RED]
         mf1, mf2 = food(1), food(2)
         h1 = food(3)
-        p.manipulation_field.slot(mf1, mf2)
+        p.sidebar.slot(mf1, mf2)
         p.hand.slot(h1)
 
         forcing = {'val': False}
@@ -97,8 +97,8 @@ class TestManipulate:
         # Then force prompt (equipment exists from setup): choose 0 (No)
         run(g, _manipulate(PID.RED, forcing), interp(2, 0))
 
-        assert mf1 in p.manipulation_field.cards
-        assert mf2 in p.manipulation_field.cards
+        assert mf1 in p.sidebar.cards
+        assert mf2 in p.sidebar.cards
         assert h1 in p.hand.cards
         assert not forcing['val']
 
@@ -107,7 +107,7 @@ class TestManipulate:
         p = g.players[PID.RED]
         mf1 = food(1)
         h1 = food(9)
-        p.manipulation_field.slot(mf1)
+        p.sidebar.slot(mf1)
         p.hand.slot(h1)
 
         forcing = {'val': False}
@@ -115,7 +115,7 @@ class TestManipulate:
         # Then force prompt (equipment exists from setup): choose 0 (No)
         run(g, _manipulate(PID.RED, forcing), interp(0, 0, 1, 0))
 
-        assert h1 in p.manipulation_field.cards
+        assert h1 in p.sidebar.cards
         assert mf1 in p.hand.cards
 
     def test_force_discards_equipment_and_sets_flag(self):
@@ -123,7 +123,7 @@ class TestManipulate:
         p = g.players[PID.RED]
         mf1 = food(1)
         h1 = food(2)
-        p.manipulation_field.slot(mf1)
+        p.sidebar.slot(mf1)
         p.hand.slot(h1)
         equip = p.equipment.cards[0]  # role card from setup
 
@@ -146,7 +146,7 @@ class TestManipulate:
         p = g.players[PID.RED]
         mf1 = food(1)
         h1 = food(2)
-        p.manipulation_field.slot(mf1)
+        p.sidebar.slot(mf1)
         p.hand.slot(h1)
 
         # Add a second equipment card
@@ -178,7 +178,7 @@ class TestPostManipulation:
         other_p = g.players[PID.BLUE]
 
         mf1, mf2 = food(1), food(2)
-        p.manipulation_field.slot(mf1, mf2)
+        p.sidebar.slot(mf1, mf2)
         # mf will have 2 + 1 drawn = 3 cards; 4 open action slots
         # -> 3 cards dealt, 1 slot empty, 0 remaining to refresh
 
@@ -187,7 +187,7 @@ class TestPostManipulation:
         filled = [s for s in other_p.action_field.slots_in_fill_order()
                   if not s.is_empty()]
         assert len(filled) == 3
-        assert p.manipulation_field.is_empty()
+        assert p.sidebar.is_empty()
 
     def test_refreshes_remaining_when_all_slots_full(self):
         g = create_initial_state(seed=42)
@@ -199,12 +199,12 @@ class TestPostManipulation:
             slot.slot(food(99))
 
         mf1 = food(7)
-        p.manipulation_field.slot(mf1)
+        p.sidebar.slot(mf1)
         # mf has 1 + 1 drawn = 2 cards, 0 open slots -> both refreshed
 
         run(g, _post_manipulation(PID.RED, False), interp())
 
-        assert p.manipulation_field.is_empty()
+        assert p.sidebar.is_empty()
         # Cards end up in opponent's refresh pile
         assert len(other_p.refresh.cards) >= 2
 
@@ -214,7 +214,7 @@ class TestPostManipulation:
         other_p = g.players[PID.BLUE]
 
         mf1 = food(1)
-        p.manipulation_field.slot(mf1)
+        p.sidebar.slot(mf1)
         # Fill 3 of 4 opponent action slots -> 1 open
         for i, slot in enumerate(other_p.action_field.slots_in_fill_order()):
             if i < 3:
@@ -242,13 +242,13 @@ class TestPostManipulation:
 
         # Put 2 cards in mf; +1 drawn = 3 to refresh
         mf1, mf2 = food(7), food(8)
-        p.manipulation_field.slot(mf1, mf2)
+        p.sidebar.slot(mf1, mf2)
 
         run(g, _post_manipulation(PID.RED, False), interp())
 
         # Correct behavior: mf should be completely empty
-        assert p.manipulation_field.is_empty(), (
-            f"Expected empty manipulation field, but {len(p.manipulation_field.cards)} "
+        assert p.sidebar.is_empty(), (
+            f"Expected empty manipulation field, but {len(p.sidebar.cards)} "
             f"card(s) remain. Likely list-mutation-during-iteration bug in "
             f"_post_manipulation step 4."
         )
@@ -276,7 +276,7 @@ class TestManipulationPhaseIntegration:
         # Give RED mf and hand cards
         mf1 = food(1)
         h1 = food(2)
-        red.manipulation_field.slot(mf1)
+        red.sidebar.slot(mf1)
         red.hand.slot(h1)
 
         # Fill 3 of BLUE's 4 action slots -> 1 open
@@ -331,5 +331,5 @@ class TestManipulationPhaseIntegration:
             assert total == 1
 
         # Manipulation fields emptied
-        assert g.players[PID.RED].manipulation_field.is_empty()
-        assert g.players[PID.BLUE].manipulation_field.is_empty()
+        assert g.players[PID.RED].sidebar.is_empty()
+        assert g.players[PID.BLUE].sidebar.is_empty()
