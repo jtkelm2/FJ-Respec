@@ -16,6 +16,9 @@ def refresh_phase() -> Effect:
     """
     def effect(g: GameState) -> Negotiation:
         for pid in PID:
+            g.players[pid].is_satiated = True
+    
+        for pid in PID:
             yield from do(ShuffleRefreshIntoDeck(pid, "refresh phase"))(g)  # pragma: no mutate
 
         for pid in PID:

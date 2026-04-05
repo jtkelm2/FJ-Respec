@@ -168,6 +168,12 @@ def _apply_action(action: Action) -> Effect:
                     yield from do(Heal(player, card.level, "food"))(g)  # pragma: no mutate
                     p.is_satiated = True
                 yield from do(Discard(player, card, "food consumed"))(g)  # pragma: no mutate
+            case EndPhase(phase):
+                pass
+            case StartPhase(phase):
+                pass
+            case GameOver(result):
+                g.game_result = result
             case FlipPriority():
                 g.priority = other(g.priority)
             case _:  # pragma: no mutate

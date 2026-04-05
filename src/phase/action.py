@@ -13,6 +13,11 @@ def action_phase() -> Effect:
       After all plays, Elusive cards on the action field are refreshed.
     """
     def effect(g: GameState) -> Negotiation:
+        for pid in PID:
+            p = g.players[pid]
+            p.first_play_done = False
+            p.action_plays_left = 3
+
         current = g.priority
 
         while not all(
@@ -28,14 +33,14 @@ def action_phase() -> Effect:
             # Offer last resort before first action play
             if not p.first_play_done:
                 yield from _offer_last_resort(current)(g)
-                if any(g.players[pid].is_dead for pid in PID):
+                if g.is_over or any(g.players[pid].is_dead for pid in PID):
                     return
 
             yield from _action_play(current)(g)
             p.action_plays_left -= 1
             p.first_play_done = True
 
-            if any(g.players[pid].is_dead for pid in PID):
+            if g.is_over or any(g.players[pid].is_dead for pid in PID):
                 return
 
             current = other(current)

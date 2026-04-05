@@ -182,24 +182,98 @@ class PlayerState:
 
     # Flags
     is_dead: bool = False
+    claims_world_killed: bool = False
+
+class Outcome(Enum):
+    MUTUAL_GOOD_WIN = auto()
+    GOOD_KILLED_EVIL = auto()
+    EVIL_KILLED_GOOD = auto()
+    GOOD_KILLED_GOOD = auto()
+    EXHAUSTION = auto()
+    GOOD_GOOD_MUTUAL_DEATH = auto()
+    GOOD_EVIL_MUTUAL_DEATH = auto()
+    GOOD_THWARTED = auto()
+    EVIL_THWARTED = auto()
+
+@dataclass
+class GameResult:
+    winners: tuple[PID, ...]
+    outcome: Outcome
+
+class Phase(Enum):
+    REFRESH = auto()
+    MANIPULATION = auto()
+    ACTION = auto()
+
+WORLD_NAME = "the_world"  # pragma: no mutate
 
 @dataclass
 class GameState:
     rng: Random
 
-    # phase: Phase
-    # phase_context: PhaseContext
     priority: PID
-    # game_result: GameResult | None
+    game_result: GameResult | None = None
 
-    players: dict[PID,PlayerState]
+    players: dict[PID,PlayerState] = field(default_factory=dict)
 
     # Shared
-    guard_deck: Slot
-    action_field: ActionField
+    guard_deck: Slot = field(default_factory=Slot)
+    action_field: ActionField = field(default_factory=ActionField)
 
     def shuffle(self,slot:Slot):
        slot.shuffle(self.rng)
+
+    @property
+    def is_over(self) -> bool:
+        return self.game_result is not None
+
+    def get_worlds_killed(self) -> int:
+        count = 0
+        for p in self.players.values():
+            for card in p.discard.cards:
+                if card.name == WORLD_NAME:
+                    count += 1
+            for ws in p.weapon_slots:
+                for card in ws.killstack.cards:
+                    if card.name == WORLD_NAME:
+                        count += 1
+        return count
+
+    def check_game_over(self) -> GameResult | None:
+        """Determine game result from current state. Returns None if game continues."""
+        dead = [pid for pid in PID if self.players[pid].is_dead]
+        good = {pid : self.players[pid].alignment == Alignment.GOOD for pid in PID}
+
+        if len(dead) == 2:
+            if all(good):
+                return GameResult((), Outcome.GOOD_GOOD_MUTUAL_DEATH)
+            else:
+                return GameResult((), Outcome.GOOD_EVIL_MUTUAL_DEATH)
+
+        if len(dead) == 1:
+            deceased = dead[0]
+            survivor = other(deceased)
+
+            if good[deceased]:
+                # A Good player died — all Good players lose, Evil wins
+                if good[survivor]:
+                    return GameResult((), Outcome.GOOD_KILLED_GOOD)
+                return GameResult((survivor,), Outcome.EVIL_KILLED_GOOD)
+            else:
+                # Evil player died — Good wins
+                return GameResult((survivor,), Outcome.GOOD_KILLED_EVIL)
+
+        if not all(self.players[pid].claims_world_killed for pid in PID):
+           return None
+
+        if not self.get_worlds_killed() >= 2:
+            if all(good):
+                return GameResult((), Outcome.GOOD_THWARTED)
+            return GameResult(tuple(pid for pid in PID if good[pid]), Outcome.EVIL_THWARTED)
+           
+        if all(good):
+           return GameResult(tuple(PID), Outcome.MUTUAL_GOOD_WIN)
+        return GameResult(tuple(pid for pid in PID if good[pid]), Outcome.EVIL_THWARTED)
 
 # An effect is a "negotiated" GameState
 Negotiation = Generator[Prompt, Response, None]
@@ -319,6 +393,21 @@ class Resolve(Action):
 class Eat(Action):
   player: PID
   card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class StartPhase(Action):
+  phase: Phase
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class EndPhase(Action):
+  phase: Phase
+  source: str = ""
+
+@dataclass
+class GameOver(Action):
+  result: GameResult
   source: str = ""  # pragma: no mutate
 
 @dataclass
