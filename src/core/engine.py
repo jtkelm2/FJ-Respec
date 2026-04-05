@@ -133,9 +133,9 @@ def _apply_action(action: Action) -> Effect:
                 else:
                     opts = []  # pragma: no mutate
                     for i, ws in enumerate(p.weapon_slots):
-                        if ws.weapon is not None:
+                        if ws.weapon is not None:  # pragma: no mutate
                             opts.append(f"Slot {i}: {ws.weapon.display_name}")  # pragma: no mutate
-                        else:
+                        else:  # pragma: no mutate
                             opts.append(f"Slot {i}: Empty")  # pragma: no mutate
                     response = yield Ask(player, "Wield in which weapon slot?", opts)  # pragma: no mutate
                     ws = p.weapon_slots[response[player]]

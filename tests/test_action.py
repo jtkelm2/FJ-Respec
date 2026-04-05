@@ -4,7 +4,7 @@ Action Phase: slot resolution, card resolution, last resorts, elusive cleanup.
 
 import pytest
 from core.type import (
-    PID, CardType, Slot, ActionField, Alignment, WeaponSlot,
+    PID, CardType, Slot, ActionField, Alignment, WeaponSlot, Role,
     Equip, Wield, Disarm, Resolve, Eat,
 )
 from core.engine import run, do
@@ -593,6 +593,214 @@ class TestActionPhaseIntegration:
             assert g.players[pid].action_plays_left == 0
             # Only 1 slot resolved, 1 still has a card
             assert not g.players[pid].action_field.top_hidden.is_empty()
+
+
+# ── Asymmetric plays / skip branch ────────────────────────────
+
+class TestAsymmetricPlays:
+    """Kills mutants on the inner skip branch of action_phase."""
+
+    def test_finished_player_skipped_while_other_plays(self):
+        """RED has 0 plays, BLUE has 1. RED must be skipped, BLUE plays."""
+        g = minimal_game()
+        g.priority = PID.RED
+        g.players[PID.RED].action_plays_left = 0
+        g.players[PID.RED].first_play_done = True
+        g.players[PID.BLUE].action_plays_left = 1
+        g.players[PID.BLUE].action_field.top_distant.slot(food(2))
+
+        # BLUE: last resort(0), slot 0
+        run(g, action_phase(), interp(blue=[0, 0]))
+        assert g.players[PID.BLUE].action_plays_left == 0
+        assert g.players[PID.BLUE].action_field.top_distant.is_empty()
+
+    def test_finished_player_skipped_repeatedly(self):
+        """RED has 0 plays, BLUE has 2. RED skipped twice."""
+        g = minimal_game()
+        g.priority = PID.RED
+        g.players[PID.RED].action_plays_left = 0
+        g.players[PID.RED].first_play_done = True
+        g.players[PID.BLUE].action_plays_left = 2
+        g.players[PID.BLUE].action_field.top_distant.slot(food(1))
+        g.players[PID.BLUE].action_field.top_hidden.slot(food(2))
+
+        # BLUE: last resort(0), slot 0, slot 0
+        run(g, action_phase(), interp(blue=[0, 0, 0]))
+        assert g.players[PID.BLUE].action_plays_left == 0
+        assert g.players[PID.BLUE].action_field.top_distant.is_empty()
+        assert g.players[PID.BLUE].action_field.top_hidden.is_empty()
+
+
+# ── _offer_last_resort via integration ────────────────────────
+
+class TestOfferLastResortRun:
+    """Choosing Run through _offer_last_resort actually refreshes the field."""
+
+    def test_choosing_run_refreshes_action_field(self):
+        g = minimal_game()
+        e = enemy(3)
+        g.players[PID.RED].action_field.top_distant.slot(e)
+        # Need 4 cards in deck for redeal
+        for i in range(4):
+            g.players[PID.RED].deck.slot(enemy(i + 1))
+
+        # Choice 1 = "Run"; BLUE keeps all 4
+        run(g, _offer_last_resort(PID.RED), interp(1, blue=[0, 0, 0, 0]))
+
+        # Original card refreshed
+        assert e in g.players[PID.RED].refresh.cards
+        # Field refilled
+        non_empty = [
+            s for s in g.players[PID.RED].action_field.slots_in_fill_order()
+            if not s.is_empty()
+        ]
+        assert len(non_empty) == 4
+
+
+class TestOfferLastResortGuards:
+    """Choosing Guards through _offer_last_resort actually deploys guards."""
+
+    def test_choosing_guards_deploys(self):
+        from cards import guard
+        g = minimal_game()
+        rc = role_card(good=True)
+        g.players[PID.RED].equipment.slot(rc)
+        g.players[PID.RED].alignment = Alignment.GOOD
+        for _ in range(4):
+            g.guard_deck.slot(guard(10))
+
+        # Options: ["None", "Run", "Call the Guards"]; choice 2 = Guards
+        run(g, _offer_last_resort(PID.RED), interp(2))
+
+        assert rc in g.players[PID.RED].discard.cards
+        for slot in g.players[PID.BLUE].action_field.slots_in_fill_order():
+            assert not slot.is_empty()
+
+    def test_evil_player_cannot_call_guards(self):
+        """Evil players don't get the Guards option even with a role card equipped.
+
+        Kills and→or mutant: with or, an Evil player with a role card
+        would get Guards offered. Choice index 2 is valid only if Guards exists.
+        """
+        g = minimal_game()
+        rc = role_card(good=False)
+        g.players[PID.RED].equipment.slot(rc)
+        g.players[PID.RED].alignment = Alignment.EVIL
+        g.players[PID.RED].role = Role("???", Alignment.EVIL)
+
+        # Only ["None", "Run"] should exist — index 2 is out of bounds
+        with pytest.raises(IndexError):
+            run(g, _offer_last_resort(PID.RED), interp(2))
+
+    def test_good_player_without_role_card_cannot_call_guards(self):
+        """Good player who lost their role card can't call guards."""
+        g = minimal_game()
+        # No role card equipped
+        g.players[PID.RED].alignment = Alignment.GOOD
+
+        # Only ["None", "Run"]; pick 0 (None)
+        run(g, _offer_last_resort(PID.RED), interp(0))
+        for slot in g.players[PID.BLUE].action_field.slots_in_fill_order():
+            assert slot.is_empty()
+
+
+# ── _legal_slot_choices: First + break, is_distant ────────────
+
+class TestLegalSlotChoicesAdvanced:
+
+    def test_first_slot_then_normal_slot_returns_normal(self):
+        """Kills continue→break mutant: First slot skipped, next slot still added."""
+        g = minimal_game()
+        from core.type import Card
+        first_card = Card("boss", "Boss", "", 10, (CardType.ENEMY,), False, True)
+        normal_card = enemy(3)
+        g.players[PID.RED].action_field.top_distant.slot(first_card)
+        g.players[PID.RED].action_field.top_hidden.slot(normal_card)
+        g.players[PID.RED].first_play_done = True
+
+        choices = _legal_slot_choices(PID.RED, g)
+        # First slot excluded, but top_hidden should be included
+        slots = [s for s, _, _, _ in choices]
+        assert g.players[PID.RED].action_field.top_hidden in slots
+        assert g.players[PID.RED].action_field.top_distant not in slots
+
+    def test_own_slots_are_not_distant(self):
+        """Kills (False,False)→(False,True) mutant for own slots."""
+        g = minimal_game()
+        g.players[PID.RED].action_field.top_distant.slot(enemy(1))
+
+        choices = _legal_slot_choices(PID.RED, g)
+        assert len(choices) == 1
+        _, _, is_opp, is_dist = choices[0]
+        assert is_opp is False
+        assert is_dist is False
+
+    def test_opponent_first_slot_available_on_first_play(self):
+        """Kills and→or mutant: opponent First slots available before first_play_done."""
+        g = minimal_game()
+        from core.type import Card
+        first_card = Card("boss", "Boss", "", 10, (CardType.ENEMY,), False, True)
+        g.players[PID.BLUE].action_field.top_distant.slot(first_card)
+        g.players[PID.RED].first_play_done = False
+
+        choices = _legal_slot_choices(PID.RED, g)
+        opp_choices = [c for c in choices if c[2]]
+        assert len(opp_choices) == 1
+
+    def test_opponent_first_slot_then_normal_not_broken(self):
+        """Kills continue→break on opponent First-slot filter."""
+        g = minimal_game()
+        from core.type import Card
+        first_card = Card("boss", "Boss", "", 10, (CardType.ENEMY,), False, True)
+        g.players[PID.BLUE].action_field.top_distant.slot(first_card)
+        g.players[PID.BLUE].action_field.top_hidden.slot(enemy(1))
+        g.players[PID.RED].first_play_done = True
+
+        choices = _legal_slot_choices(PID.RED, g)
+        opp_choices = [c for c in choices if c[2]]
+        # First distant excluded, but hidden should be included
+        assert len(opp_choices) == 1
+        assert opp_choices[0][0] is g.players[PID.BLUE].action_field.top_hidden
+
+
+# ── _resolve_top_of_deck ──────────────────────────────────────
+
+class TestResolveTopOfDeck:
+
+    def test_resolves_food_from_deck(self):
+        g = minimal_game()
+        g.players[PID.RED].hp = 10
+        f = food(5)
+        g.players[PID.RED].deck.slot(f)
+
+        from phase.action import _resolve_top_of_deck
+        run(g, _resolve_top_of_deck(PID.RED), interp())
+
+        assert g.players[PID.RED].hp == 15
+        assert f in g.players[PID.RED].discard.cards
+
+    def test_resolves_enemy_from_deck(self):
+        g = minimal_game()
+        e = enemy(3)
+        g.players[PID.RED].deck.slot(e)
+
+        from phase.action import _resolve_top_of_deck
+        run(g, _resolve_top_of_deck(PID.RED), interp(0))  # fists
+
+        assert g.players[PID.RED].hp == 17
+        assert e in g.players[PID.RED].discard.cards
+
+    def test_fallback_triggered_when_no_legal_slots(self):
+        """Full integration: _action_play falls back to top-of-deck."""
+        g = minimal_game()
+        g.players[PID.RED].hp = 10
+        # No cards on any action field — empty choices
+        f = food(7)
+        g.players[PID.RED].deck.slot(f)
+
+        run(g, _action_play(PID.RED), interp())
+        assert g.players[PID.RED].hp == 17
+        assert f in g.players[PID.RED].discard.cards
 
 
 # ── count_all_cards with weapons ──────────────────────────────

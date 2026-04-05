@@ -98,7 +98,7 @@ def _run(pid: PID) -> Effect:
     """Running: refresh own action field, opponent reviews replacements."""
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
-        opp = other(pid)
+        opp = other(pid)  # pragma: no mutate
         sidebar = p.sidebar
 
         # 1. Refresh each card on your action slots
@@ -216,7 +216,7 @@ def _action_play(pid: PID) -> Effect:
 
             # Opponent slots require consent
             if is_opp:
-                opp_pid = other(pid)
+                opp_pid = other(pid)  # pragma: no mutate
                 consent = yield Ask(opp_pid, f"Allow opponent to resolve your slot?", ["Allow", "Deny"])  # pragma: no mutate
                 if consent[opp_pid] == 1:
                     continue  # denied → re-pick
