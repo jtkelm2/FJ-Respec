@@ -7,7 +7,8 @@ from core.type import (
     PID, CardType, Slot, ActionField, Alignment, WeaponSlot, Role,
     Equip, Wield, Disarm, Resolve, Eat,
 )
-from core.engine import run, do
+from core.engine import do
+from interact.interpret import run
 from combat import can_use_weapon
 from cards import enemy, weapon, food, role_card
 from phase.action import (

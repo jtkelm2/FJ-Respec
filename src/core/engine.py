@@ -1,16 +1,5 @@
 from core.type import *
-from core.interpret import *
 
-
-def run(g:GameState, effect: Effect, i:Interpreter):
-  e = effect(g)
-  try:
-    prompt = next(e)
-    while True:
-      response = i.interpret(prompt)
-      prompt = e.send(response)
-  except StopIteration:
-    return
 
 def do(action: Action) -> Effect:
     def effect(g: GameState) -> Negotiation:

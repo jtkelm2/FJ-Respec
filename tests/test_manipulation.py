@@ -6,7 +6,8 @@ sequences, plus an integration test for the full simultaneously-driven phase.
 """
 
 from core.type import PID, Card, CardType, Slot
-from core.engine import run, do
+from core.engine import do
+from interact.interpret import run
 from helpers import interp
 from cards import food, enemy
 from phase.setup import create_initial_state
@@ -285,7 +286,8 @@ class TestManipulationPhaseIntegration:
                 slot.slot(food(90 + i))
 
         from phase.manipulation import manipulation_phase
-        from core.interpret import ScriptedInterpreter, AggregateInterpreter
+        from interact.player import ScriptedInterpreter
+        from interact.interpret import AggregateInterpreter
 
         # RED: Manipulate(0), Done(1), Force(1), PostManip choose card(0)
         # BLUE: Dump(1) with empty hand

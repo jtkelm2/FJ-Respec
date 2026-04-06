@@ -5,7 +5,8 @@ The cardinal rule: cards are never created or destroyed.
 """
 
 from core.type import PID, Slot, Death, Alignment
-from core.engine import run, do
+from core.engine import do
+from interact.interpret import run
 from helpers import interp, count_all_cards
 from cards import food, enemy
 from combat import resolve_combat

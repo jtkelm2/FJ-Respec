@@ -4,8 +4,9 @@ import random
 from core.type import (
     GameState, PlayerState, PID, Slot, ActionField,
 )
-from core.engine import run, do
-from core.interpret import AggregateInterpreter, ScriptedInterpreter
+from core.engine import do
+from interact.interpret import run, AggregateInterpreter
+from interact.player import ScriptedInterpreter
 
 
 def interp(*red_choices, blue=None):

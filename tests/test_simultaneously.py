@@ -7,7 +7,8 @@ player the interpreter answers for.
 
 import pytest
 from core.type import PID, Ask, AskBoth, PromptHalf, PKind, Prompt, PlayerState
-from core.engine import run, simultaneously
+from core.engine import simultaneously
+from interact.interpret import run
 from helpers import interp, minimal_game
 
 

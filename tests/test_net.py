@@ -13,8 +13,9 @@ from core.type import (
     GameResult, Outcome, Ask, AskBoth, AskEither,
     compute_player_view,
 )
-from core.interpret import ScriptedInterpreter
-from net import AsyncAggregateInterpreter, _serialize_view, deserialize_view, _GameEncoder
+from interact.player import ScriptedInterpreter, _serialize_view, _GameEncoder
+from interact.interpret import AsyncAggregateInterpreter
+from interact.client import deserialize_view
 from phase.setup import create_initial_state
 
 

@@ -12,7 +12,8 @@ from core.type import (
     FlipPriority, Refresh, Discard, Shuffle,
     TransferHP, StealHP, Resolve,
 )
-from core.engine import run, do
+from core.engine import do
+from interact.interpret import run
 from helpers import interp
 from cards import food, enemy
 from phase.setup import create_initial_state

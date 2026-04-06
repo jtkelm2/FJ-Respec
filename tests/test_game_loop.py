@@ -7,7 +7,8 @@ from core.type import (
     PID, Alignment, Outcome, GameResult, GameOver, StartPhase, Phase,
     WORLD_NAME, Card, CardType,
 )
-from core.engine import run, do
+from core.engine import do
+from interact.interpret import run
 from cards import enemy, food, weapon
 from phase.game import game_loop, _settle, _offer_world_claims
 from phase.setup import create_initial_state

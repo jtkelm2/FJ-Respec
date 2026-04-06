@@ -1,35 +1,41 @@
 """
-Client-side networking: CLIGameClient and TCP transport.
-
-Connects to a TCPGameServer and plays via terminal I/O.
+Client-side: GameClient contract, CLIGameClient, deserialization, TCP transport.
 """
 
 import json
 import logging
 import socket
+from abc import abstractmethod
 
-from core.interpret import GameClient
-from core.type import PlayerView
-from net import deserialize_view
+from core.type import (
+    PID, CardType, CardView, GameResult, Outcome,
+    PlayerView,
+)
+from interact.player import _recv, _send
 
 log = logging.getLogger("client")
 
 
-# ── JSON wire helpers (mirror of net.py) ──────────────────────
+# ── GameClient contract ───────────────────────────────────────
 
-def _send(sock: socket.socket, msg: dict) -> None:
-    data = json.dumps(msg) + "\n"
-    sock.sendall(data.encode())
+class GameClient:
+  """Client-side contract. Frontends implement this."""
 
+  @abstractmethod
+  def on_state(self, view: PlayerView) -> None:
+    """Render updated visible game state.
+    Game result is part of PlayerView — detect game over here."""
+    pass
 
-def _recv(sock: socket.socket) -> dict:
-    buf = b""
-    while b"\n" not in buf:
-        chunk = sock.recv(4096)
-        if not chunk:
-            raise ConnectionError("connection closed")
-        buf += chunk
-    return json.loads(buf.split(b"\n", 1)[0])
+  @abstractmethod
+  def on_prompt(self, text: str, options: list[str]) -> int:
+    """Display a prompt and return the chosen option index."""
+    pass
+
+  @abstractmethod
+  def on_notify(self, text: str) -> None:
+    """Display a notification message."""
+    pass
 
 
 # ── CLIGameClient ─────────────────────────────────────────────
@@ -122,6 +128,56 @@ class CLIGameClient(GameClient):
     def on_notify(self, text: str) -> None:
         log.info("on_notify: %s", text)
         print(f"\n[!] {text}")
+
+
+# ── Deserialization ───────────────────────────────────────────
+
+def _deserialize_card_view(d: dict) -> CardView:
+    return CardView(
+        name=d["name"],
+        display_name=d["display_name"],
+        level=d["level"],
+        types=tuple(CardType[t] for t in d["types"]),
+    )
+
+def deserialize_view(d: dict) -> PlayerView:
+    """Reconstruct a PlayerView from a JSON-deserialized dict."""
+    def _cards(lst): return [_deserialize_card_view(c) for c in lst]
+    def _weapon(w): return (
+        _deserialize_card_view(w[0]) if w[0] is not None else None,
+        w[1], w[2],
+    )
+    gr = d["game_result"]
+    game_result = None if gr is None else GameResult(
+        winners=tuple(PID[w] for w in gr["winners"]),
+        outcome=Outcome[gr["outcome"]],
+    )
+    return PlayerView(
+        hp=d["hp"],
+        hand=_cards(d["hand"]),
+        equipment=_cards(d["equipment"]),
+        weapons=[_weapon(w) for w in d["weapons"]],
+        deck_size=d["deck_size"],
+        refresh_size=d["refresh_size"],
+        discard_size=d["discard_size"],
+        action_field_top_distant=_cards(d["action_field_top_distant"]),
+        action_field_top_hidden=_cards(d["action_field_top_hidden"]),
+        action_field_bottom_hidden=_cards(d["action_field_bottom_hidden"]),
+        action_field_bottom_distant=_cards(d["action_field_bottom_distant"]),
+        sidebar=_cards(d["sidebar"]),
+        opp_equipment_count=d["opp_equipment_count"],
+        opp_weapons=[tuple(w) for w in d["opp_weapons"]],
+        opp_deck_size=d["opp_deck_size"],
+        opp_refresh_size=d["opp_refresh_size"],
+        opp_discard_size=d["opp_discard_size"],
+        opp_action_field_top_distant=_cards(d["opp_action_field_top_distant"]),
+        opp_action_field_top_hidden_count=d["opp_action_field_top_hidden_count"],
+        opp_action_field_bottom_hidden_count=d["opp_action_field_bottom_hidden_count"],
+        opp_action_field_bottom_distant=_cards(d["opp_action_field_bottom_distant"]),
+        priority=PID[d["priority"]],
+        guard_deck_size=d["guard_deck_size"],
+        game_result=game_result,
+    )
 
 
 # ── TCP transport + main loop ─────────────────────────────────

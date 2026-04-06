@@ -7,7 +7,8 @@ Boundary analysis of the pipeline:
 
 import pytest
 from core.type import PID, Damage, Heal, SetHP
-from core.engine import run, do
+from core.engine import do
+from interact.interpret import run
 from helpers import interp
 from phase.setup import create_initial_state
 

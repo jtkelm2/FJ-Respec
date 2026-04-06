@@ -8,7 +8,7 @@ Metamorphic relation:  damage = max(0, enemy_level - sharpness)
 
 import pytest
 from core.type import PID, CardType, WeaponSlot
-from core.engine import run
+from interact.interpret import run
 from combat import resolve_combat, can_use_weapon
 from helpers import interp
 from cards import enemy, weapon, food

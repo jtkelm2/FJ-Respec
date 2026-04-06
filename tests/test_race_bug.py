@@ -11,9 +11,9 @@ import time
 from queue import Queue
 
 from core.type import PID, PromptHalf, PlayerView, Ask
-from core.interpret import Player
-from core.engine import run, simultaneously
-from net import AsyncAggregateInterpreter
+from core.engine import simultaneously
+from interact.player import Player
+from interact.interpret import run, AsyncAggregateInterpreter
 from phase.setup import create_initial_state
 
 log = logging.getLogger("race_test")
