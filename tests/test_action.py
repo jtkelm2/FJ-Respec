@@ -305,7 +305,7 @@ class TestLegalSlotChoices:
         g.players[PID.RED].action_field.top_distant.slot(e)
 
         choices = _legal_slot_choices(PID.RED, g)
-        slots = [s for s, _, _, _ in choices]
+        slots = [s for s, _, _, _, _ in choices]
         assert g.players[PID.RED].action_field.top_distant in slots
 
     def test_excludes_empty_slots(self):
@@ -319,7 +319,7 @@ class TestLegalSlotChoices:
         g.players[PID.BLUE].action_field.top_distant.slot(e)
 
         choices = _legal_slot_choices(PID.RED, g)
-        opp_choices = [(s, l, o, d) for s, l, o, d in choices if o]
+        opp_choices = [(s, l, o, d, h) for s, l, o, d, h in choices if o]
         assert len(opp_choices) == 1
         assert opp_choices[0][3] is True  # distant
 
@@ -687,7 +687,7 @@ class TestLegalSlotChoicesAdvanced:
 
         choices = _legal_slot_choices(PID.RED, g)
         # First slot excluded, but top_hidden should be included
-        slots = [s for s, _, _, _ in choices]
+        slots = [s for s, _, _, _, _ in choices]
         assert g.players[PID.RED].action_field.top_hidden in slots
         assert g.players[PID.RED].action_field.top_distant not in slots
 
@@ -698,7 +698,7 @@ class TestLegalSlotChoicesAdvanced:
 
         choices = _legal_slot_choices(PID.RED, g)
         assert len(choices) == 1
-        _, _, is_opp, is_dist = choices[0]
+        _, _, is_opp, is_dist, _ = choices[0]
         assert is_opp is False
         assert is_dist is False
 

@@ -441,3 +441,94 @@ class Trait:
     name: str
     callback: Callable[[Action], Effect]
     kind: TKind
+
+
+############# Player View ########
+
+@dataclass
+class CardView:
+    name: str
+    display_name: str
+    level: int | None
+    types: tuple[CardType, ...]
+
+def _card_view(card: Card) -> CardView:
+    return CardView(card.name, card.display_name, card.level, card.types)
+
+def _card_views(slot: Slot) -> list[CardView]:
+    return [_card_view(c) for c in slot.cards]
+
+@dataclass
+class PlayerView:
+    # Own state (full visibility)
+    hp: int
+    hand: list[CardView]
+    equipment: list[CardView]
+    weapons: list[tuple[CardView | None, int, int]]  # (weapon, sharpness, kill_count)
+    deck_size: int
+    refresh_size: int
+    discard_size: int
+    action_field_top_distant: list[CardView]
+    action_field_top_hidden: list[CardView]
+    action_field_bottom_hidden: list[CardView]
+    action_field_bottom_distant: list[CardView]
+    sidebar: list[CardView]
+
+    # Opponent state (fog of war)
+    opp_equipment_count: int
+    opp_weapons: list[tuple[int, int]]  # (sharpness, kill_count) — no card identity
+    opp_deck_size: int
+    opp_refresh_size: int
+    opp_discard_size: int
+    opp_action_field_top_distant: list[CardView]      # visible (distant)
+    opp_action_field_top_hidden_count: int             # hidden — count only
+    opp_action_field_bottom_hidden_count: int          # hidden — count only
+    opp_action_field_bottom_distant: list[CardView]    # visible (distant)
+
+    # Shared
+    priority: PID
+    guard_deck_size: int
+    game_result: GameResult | None
+
+
+def compute_player_view(g: GameState, pid: PID) -> PlayerView:
+    p = g.players[pid]
+    opp = g.players[other(pid)]
+
+    weapons = []
+    for ws in p.weapon_slots:
+        wv = _card_view(ws.weapon) if ws.weapon is not None else None
+        weapons.append((wv, ws.sharpness(), len(ws.killstack.cards)))
+
+    opp_weapons = []
+    for ws in opp.weapon_slots:
+        opp_weapons.append((ws.sharpness(), len(ws.killstack.cards)))
+
+    return PlayerView(
+        hp=p.hp,
+        hand=_card_views(p.hand),
+        equipment=_card_views(p.equipment),
+        weapons=weapons,
+        deck_size=len(p.deck.cards),
+        refresh_size=len(p.refresh.cards),
+        discard_size=len(p.discard.cards),
+        action_field_top_distant=_card_views(p.action_field.top_distant),
+        action_field_top_hidden=_card_views(p.action_field.top_hidden),
+        action_field_bottom_hidden=_card_views(p.action_field.bottom_hidden),
+        action_field_bottom_distant=_card_views(p.action_field.bottom_distant),
+        sidebar=_card_views(p.sidebar),
+
+        opp_equipment_count=len(opp.equipment.cards),
+        opp_weapons=opp_weapons,
+        opp_deck_size=len(opp.deck.cards),
+        opp_refresh_size=len(opp.refresh.cards),
+        opp_discard_size=len(opp.discard.cards),
+        opp_action_field_top_distant=_card_views(opp.action_field.top_distant),
+        opp_action_field_top_hidden_count=len(opp.action_field.top_hidden.cards),
+        opp_action_field_bottom_hidden_count=len(opp.action_field.bottom_hidden.cards),
+        opp_action_field_bottom_distant=_card_views(opp.action_field.bottom_distant),
+
+        priority=g.priority,
+        guard_deck_size=len(g.guard_deck.cards),
+        game_result=g.game_result,
+    )

@@ -165,9 +165,9 @@ def _call_guards(pid: PID) -> Effect:
 
 def _legal_slot_choices(
     pid: PID, g: GameState
-) -> list[tuple[Slot, str, bool, bool]]:
-    """Return (slot, label, is_opponent_field, is_distant) for each legal choice."""
-    choices: list[tuple[Slot, str, bool, bool]] = []
+) -> list[tuple[Slot, str, bool, bool, bool]]:
+    """Return (slot, label, is_opponent_field, is_distant, is_hidden) for each legal choice."""
+    choices: list[tuple[Slot, str, bool, bool, bool]] = []
 
     own = g.players[pid].action_field
     _own_names = [
@@ -181,22 +181,22 @@ def _legal_slot_choices(
             continue
         if g.players[pid].first_play_done and slot.is_first:
             continue
-        choices.append((slot, label, False, False))
+        choices.append((slot, label, False, False, False))
 
     opp_pid = other(pid)
     opp = g.players[opp_pid].action_field
     _opp_names = [
-        (opp.top_distant, "Opponent top distant", True),  # pragma: no mutate
-        (opp.top_hidden, "Opponent top hidden", False),  # pragma: no mutate
-        (opp.bottom_hidden, "Opponent bottom hidden", False),  # pragma: no mutate
-        (opp.bottom_distant, "Opponent bottom distant", True),  # pragma: no mutate
+        (opp.top_distant, "Opponent top distant", True, False),  # pragma: no mutate
+        (opp.top_hidden, "Opponent top hidden", False, True),  # pragma: no mutate
+        (opp.bottom_hidden, "Opponent bottom hidden", False, True),  # pragma: no mutate
+        (opp.bottom_distant, "Opponent bottom distant", True, False),  # pragma: no mutate
     ]
-    for slot, label, distant in _opp_names:
+    for slot, label, distant, hidden in _opp_names:
         if slot.is_empty():
             continue
         if g.players[pid].first_play_done and slot.is_first:
             continue
-        choices.append((slot, label, True, distant))
+        choices.append((slot, label, True, distant, hidden))
 
     return choices
 
@@ -214,10 +214,10 @@ def _action_play(pid: PID) -> Effect:
             return
 
         while True:
-            labels = [_slot_label(s, lbl) for s, lbl, _, _ in choices]  # pragma: no mutate
+            labels = [_slot_label(s, lbl, hid) for s, lbl, _, _, hid in choices]  # pragma: no mutate
             response = yield Ask(pid, "Resolve which slot?", labels)  # pragma: no mutate
             idx = response[pid]
-            slot, _, is_opp, is_dist = choices[idx]
+            slot, _, is_opp, is_dist, _ = choices[idx]
 
             # Opponent slots require consent
             if is_opp:
@@ -237,7 +237,10 @@ def _action_play(pid: PID) -> Effect:
     return effect
 
 
-def _slot_label(slot: Slot, prefix: str) -> str:
+def _slot_label(slot: Slot, prefix: str, hidden: bool = False) -> str:
+    if hidden:
+        n = len(slot.cards)  # pragma: no mutate
+        return f"{prefix}: [{n} card{'s' if n != 1 else ''}]"  # pragma: no mutate
     card_names = ", ".join(c.display_name for c in slot.cards)  # pragma: no mutate
     return f"{prefix}: [{card_names}]"  # pragma: no mutate
 
