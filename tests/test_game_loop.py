@@ -272,6 +272,14 @@ class TestOfferWorldClaims:
         assert g.players[PID.RED].claims_world_killed is True
         assert g.players[PID.BLUE].claims_world_killed is False
 
+    def test_one_already_claimed_other_says_yes(self):
+        """When one has claimed and the other says Yes, the claim is set."""
+        g = minimal_game()
+        g.players[PID.RED].claims_world_killed = True
+        # BLUE gets prompted: Yes(1)
+        run(g, _offer_world_claims, interp(blue=[1]))
+        assert g.players[PID.BLUE].claims_world_killed is True
+
     def test_both_already_claimed_no_prompt(self):
         """When both have claimed, no prompts at all."""
         g = minimal_game()

@@ -10,8 +10,11 @@ def do(action: Action) -> Effect:
             chosen = candidates[0]  # pragma: no mutate
           else:
             pid = _player_to_choose_replacement(g, action)  # pragma: no mutate
-            response = yield Ask(pid, f"Choose replacement for {action}:", [tr.name for tr in candidates])  # pragma: no mutate
-            chosen = candidates[response[pid]]  # pragma: no mutate
+            pb = PromptBuilder(f"Choose replacement for {action}:")  # pragma: no mutate
+            for tr in candidates:  # pragma: no mutate
+                pb.add(tr.name, tr)  # pragma: no mutate
+            response = yield pb.build(pid)  # pragma: no mutate
+            chosen = pb.decode(response, pid)  # pragma: no mutate
           yield from chosen.callback(action)(g)  # pragma: no mutate
           return  # pragma: no mutate
 
@@ -111,8 +114,10 @@ def _apply_action(action: Action) -> Effect:
             case Equip(player, card, source):
                 p = g.players[player]
                 while len(p.equipment.cards) >= p.max_equipment:
-                    response = yield Ask(player, "Equipment full. Discard which?", [c.display_name for c in p.equipment.cards])  # pragma: no mutate
-                    to_discard = p.equipment.cards[response[player]]
+                    pb = PromptBuilder("Equipment full. Discard which?")  # pragma: no mutate
+                    pb.add_cards(p.equipment.cards)  # pragma: no mutate
+                    response = yield pb.build(player)  # pragma: no mutate
+                    to_discard = pb.decode(response, player)
                     yield from do(Discard(player, to_discard, "equip overflow"))(g)  # pragma: no mutate
                 yield from do(SlotCard(card, p.equipment, "equip"))(g)  # pragma: no mutate
             case Wield(player, card, source):
@@ -120,14 +125,14 @@ def _apply_action(action: Action) -> Effect:
                 if len(p.weapon_slots) == 1:
                     ws = p.weapon_slots[0]
                 else:
-                    opts = []  # pragma: no mutate
+                    pb = PromptBuilder("Wield in which weapon slot?")  # pragma: no mutate
                     for i, ws in enumerate(p.weapon_slots):
                         if ws.weapon is not None:  # pragma: no mutate
-                            opts.append(f"Slot {i}: {ws.weapon.display_name}")  # pragma: no mutate
+                            pb.add(f"Slot {i}: {ws.weapon.display_name}", ws)  # pragma: no mutate
                         else:  # pragma: no mutate
-                            opts.append(f"Slot {i}: Empty")  # pragma: no mutate
-                    response = yield Ask(player, "Wield in which weapon slot?", opts)  # pragma: no mutate
-                    ws = p.weapon_slots[response[player]]
+                            pb.add(f"Slot {i}: Empty", ws)  # pragma: no mutate
+                    response = yield pb.build(player)  # pragma: no mutate
+                    ws = pb.decode(response, player)
                 if ws.weapon is not None:
                     yield from do(Discard(player, ws.weapon, "wield old weapon"))(g)  # pragma: no mutate
                 for kill_card in list(ws.killstack.cards):
@@ -197,9 +202,12 @@ def _fire_triggers(g: GameState, action: Action, kind: TKind) -> Negotiation:
 
     if len(triggered) > 1:  # pragma: no mutate
         pid = _player_to_choose_replacement(g, action)  # pragma: no mutate
-        response = yield Ask(pid, f"Order {kind} triggers for {action}:", [tr.name for tr in triggered])  # pragma: no mutate
-        idx = response[pid]  # pragma: no mutate
-        triggered.insert(0, triggered.pop(idx))  # pragma: no mutate
+        pb = PromptBuilder(f"Order {kind} triggers for {action}:")  # pragma: no mutate
+        for i, tr in enumerate(triggered):  # pragma: no mutate
+            pb.add(tr.name, i)  # pragma: no mutate
+        response = yield pb.build(pid)  # pragma: no mutate
+        idx = pb.decode(response, pid)  # pragma: no mutate
+        triggered.insert(0, triggered.pop(idx))  # pragma: no mutate TODO: Actually ask for and apply a permutation, not simply a first trigger
 
     for tr in triggered:  # pragma: no mutate
         yield from tr.callback(action)(g)  # pragma: no mutate

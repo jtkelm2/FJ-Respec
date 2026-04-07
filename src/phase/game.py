@@ -44,18 +44,20 @@ def _offer_world_claims(g: GameState) -> Negotiation:
     """At end of action phase, ask each player who hasn't yet claimed
     whether they wish to announce that they have killed The World."""
 
-    prompt_half = PromptHalf("Announce that you have killed The World?", ["No","Yes"])  # pragma: no mutate
+    pb = (PromptBuilder("Announce that you have killed The World?")  # pragma: no mutate
+          .add("No", False)   # pragma: no mutate
+          .add("Yes", True))  # pragma: no mutate
 
     if not any(g.players[player].claims_world_killed for player in PID):
-        response = yield AskBoth({player : prompt_half for player in PID})
+        response = yield PromptBuilder.both(pb)
         for player in PID:
-            if response[player] == 1:
+            if pb.decode(response, player):
                 g.players[player].claims_world_killed = True
         return
-    
+
     for player in PID:
         if not g.players[player].claims_world_killed:
-            response = yield AskEither({player : prompt_half})
-            if response[player] == 1:
+            response = yield pb.build(player)
+            if pb.decode(response, player):
                 g.players[player].claims_world_killed = True
             return

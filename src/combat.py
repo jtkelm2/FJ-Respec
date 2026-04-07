@@ -9,18 +9,18 @@ def can_use_weapon(ws: WeaponSlot, enemy: Card) -> bool:
     assert enemy_level is not None
     return ws.sharpness() >= enemy_level
 
-def choose_weapon_prompt(g: GameState, player: PID, enemy: Card) -> Prompt:
+def _weapon_builder(g: GameState, player: PID, enemy: Card) -> PromptBuilder:
     enemy_level = enemy.level
     assert isinstance(enemy_level, int)
 
-    opts: list[str] = [f"Fists ({enemy_level} dmg)"]  # pragma: no mutate
+    pb = PromptBuilder(f"Fight Lv. {enemy_level} enemy:")  # pragma: no mutate
+    pb.add(f"Fists ({enemy_level} dmg)", None)  # pragma: no mutate
     for ws in g.players[player].weapon_slots:
-        if can_use_weapon(ws, enemy):
-            assert ws.weapon is not None
+        if ws.weapon is not None:
             weapon_level = ws.weapon.level
             assert weapon_level is not None
-            opts.append(f"Weapon Lv. {weapon_level} ({max(0, enemy_level - weapon_level)} dmg)")  # pragma: no mutate
-    return Ask(player, f"Fight Lv. {enemy_level} enemy:", opts)  # pragma: no mutate
+            pb.add(f"Weapon Lv. {weapon_level} ({max(0, enemy_level - weapon_level)} dmg)", ws)  # pragma: no mutate
+    return pb
 
 
 # --- Combat resolution ---
@@ -30,17 +30,12 @@ def resolve_combat(resolver: PID, enemy: Card) -> Effect:
         enemy_level = enemy.level
         assert enemy_level is not None
 
-        r = yield choose_weapon_prompt(g, resolver, enemy)
-        choice = r[resolver]
+        pb = _weapon_builder(g, resolver, enemy)
+        r = yield pb.build(resolver)
+        ws = pb.decode(r, resolver)
+        assert isinstance(ws, WeaponSlot | None)
 
-        ws:WeaponSlot | None
-        sharpness:int
-        if choice == 0:
-            ws = None
-            sharpness = 0
-        else:
-            ws = g.players[resolver].weapon_slots[choice-1]
-            sharpness = ws.sharpness()
+        sharpness = 0 if ws is None else ws.sharpness()
 
         dmg = max(0, enemy_level - sharpness)
         yield from do(Damage(resolver, dmg, "combat"))(g)  # pragma: no mutate

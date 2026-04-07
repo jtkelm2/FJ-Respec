@@ -13,8 +13,11 @@ def manipulation_phase() -> Effect:
     def player_effect(pid) -> Effect:
         def eff(g):
             forcing = {'val': False}
-            response = yield Ask(pid, "Choose: Manipulate or Dump?", ["Manipulate", "Dump"])  # pragma: no mutate
-            if response[pid] == 0:
+            pb = (PromptBuilder("Choose: Manipulate or Dump?")  # pragma: no mutate
+                  .add("Manipulate", "manipulate")  # pragma: no mutate
+                  .add("Dump", "dump"))  # pragma: no mutate
+            response = yield pb.build(pid)  # pragma: no mutate
+            if pb.decode(response, pid) == "manipulate":  # pragma: no mutate
                 yield from _manipulate(pid, forcing)(g)  # pragma: no mutate
             else:
                 yield from _dump(pid)(g)  # pragma: no mutate
@@ -36,18 +39,19 @@ def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
             mf_cards = p.sidebar.cards
             hand_cards = p.hand.cards
 
-            options = [c.display_name for c in mf_cards] + ["Done"]  # pragma: no mutate
-            response = yield Ask(pid, "Choose a card from manipulation field to swap, or Done:", options)  # pragma: no mutate
-            choice = response[pid]
+            pb = PromptBuilder("Choose a card from manipulation field to swap, or Done:")  # pragma: no mutate
+            pb.add_cards(list(mf_cards))  # pragma: no mutate
+            pb.add("Done", None)  # pragma: no mutate
+            response = yield pb.build(pid)  # pragma: no mutate
+            mf_card = pb.decode(response, pid)
 
-            if choice >= len(mf_cards):
+            if mf_card is None:
                 break
 
-            mf_card = mf_cards[choice]
-
-            hand_options = [c.display_name for c in hand_cards]  # pragma: no mutate
-            response = yield Ask(pid, "Choose a card from hand to swap with:", hand_options)  # pragma: no mutate
-            hand_card = hand_cards[response[pid]]
+            hpb = PromptBuilder("Choose a card from hand to swap with:")  # pragma: no mutate
+            hpb.add_cards(list(hand_cards))  # pragma: no mutate
+            response = yield hpb.build(pid)  # pragma: no mutate
+            hand_card = hpb.decode(response, pid)
 
             # Swap: move each card to the other's slot
             yield from do(SlotCard(mf_card, p.hand, "manipulation swap"))(g)  # pragma: no mutate
@@ -56,11 +60,12 @@ def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
         # Force option: discard equipment to choose which card to send
         equipment_cards = p.equipment.cards
         if equipment_cards:
-            options = ["No"] + [f"Discard {c.display_name}" for c in equipment_cards]  # pragma: no mutate
-            response = yield Ask(pid, "Force? (Discard equipment to choose which card to send)", options)  # pragma: no mutate
-            choice = response[pid]
-            if choice > 0:
-                equip = equipment_cards[choice - 1]
+            pb = PromptBuilder("Force? (Discard equipment to choose which card to send)")  # pragma: no mutate
+            pb.add("No", None)  # pragma: no mutate
+            pb.add_cards(list(equipment_cards), lambda c: f"Discard {c.display_name}")  # pragma: no mutate
+            response = yield pb.build(pid)  # pragma: no mutate
+            equip = pb.decode(response, pid)
+            if equip is not None:
                 yield from do(Discard(pid, equip, "forcing"))(g)  # pragma: no mutate
                 forcing['val'] = True
 
@@ -77,8 +82,11 @@ def _dump(pid: PID) -> Effect:
             if card.is_elusive:
                 yield from do(Refresh(card, other_pid, "dump elusive"))(g)  # pragma: no mutate
             else:
-                response = yield Ask(pid, f"{card.display_name}:", ["Discard", "Refresh"])  # pragma: no mutate
-                if response[pid] == 0:
+                pb = (PromptBuilder(f"{card.display_name}:")  # pragma: no mutate
+                      .add("Discard", "discard")  # pragma: no mutate
+                      .add("Refresh", "refresh"))  # pragma: no mutate
+                response = yield pb.build(pid)  # pragma: no mutate
+                if pb.decode(response, pid) == "discard":  # pragma: no mutate
                     yield from do(Discard(other_pid, card, "dump discard"))(g)  # pragma: no mutate
                 else:
                     yield from do(Refresh(card, other_pid, "dump refresh"))(g)  # pragma: no mutate
@@ -111,8 +119,10 @@ def _post_manipulation(pid: PID, is_forcing: bool) -> Effect:
         for slot in open_slots:
             if is_forcing:
                 mf_cards = p.sidebar.cards
-                response = yield Ask(pid, "Choose card to force to opponent:", [c.display_name for c in mf_cards])  # pragma: no mutate
-                chosen = mf_cards[response[pid]]
+                pb = PromptBuilder("Choose card to force to opponent:")  # pragma: no mutate
+                pb.add_cards(list(mf_cards))  # pragma: no mutate
+                response = yield pb.build(pid)  # pragma: no mutate
+                chosen = pb.decode(response, pid)
                 yield from do(SlotCard(chosen, slot, "forced deal to action field"))(g)  # pragma: no mutate
             else:
                 # Already shuffled, so drawing position 0 is effectively random

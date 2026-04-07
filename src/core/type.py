@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from random import Random
-from typing import Callable, Generator
+from typing import Any, Callable, Generator
 from enum import Enum, auto
 
 class CardType(Enum):
@@ -58,6 +58,57 @@ def AskEither(asks: dict[PID,PromptHalf]) -> Prompt:
   return Prompt(asks, PKind.EITHER)
 
 Response = dict[PID,int]
+
+class PromptBuilder:
+  """Accumulates (label, tag) pairs, builds a Prompt, and decodes a Response back into its tag."""
+
+  def __init__(self, text: str):
+    self._text = text
+    self._options: list[tuple[str, Any]] = []
+
+  def add(self, label: str, tag: Any):
+    self._options.append((label, tag))
+    return self
+
+  def add_card(self, card: Card, str:str | None = None):
+    self._options.append((str or card.display_name, card))
+    return self
+
+  def add_cards(self, cards: list[Card], label_fn: Callable[[Card], str] | None = None):
+    for card in cards:
+      self.add_card(card, label_fn(card) if label_fn else None)
+    return self
+  
+  # def add_slot_cards(self, slot: "Slot"):
+  #   return self.add_cards(slot.cards)
+
+  def add_if(self, cond: bool, label: str, tag: Any):
+    if cond:
+      self._options.append((label, tag))
+    return self
+
+  def _half(self) -> PromptHalf:
+    return PromptHalf(self._text, [label for label, _ in self._options])  # pragma: no mutate
+
+  def build(self, pid: PID) -> Prompt:
+    return Ask(pid, self._text, [label for label, _ in self._options])  # pragma: no mutate
+
+  def decode(self, response: Response, pid: PID) -> Any:
+    return self._options[response[pid]][1]  # pragma: no mutate
+
+  @staticmethod
+  def both(*builders: "PromptBuilder") -> Prompt:
+    if len(builders) == 1:
+      half = builders[0]._half()
+      return AskBoth({pid: half for pid in PID})  # pragma: no mutate
+    return AskBoth({PID.RED: builders[0]._half(), PID.BLUE: builders[1]._half()})  # pragma: no mutate
+
+  @staticmethod
+  def either(*builders: "PromptBuilder") -> Prompt:
+    if len(builders) == 1:
+      half = builders[0]._half()
+      return AskEither({pid: half for pid in PID})  # pragma: no mutate
+    return AskEither({PID.RED: builders[0]._half(), PID.BLUE: builders[1]._half()})  # pragma: no mutate
 
 class Slot:
   _cards: list[Card]
