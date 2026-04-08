@@ -7,8 +7,9 @@ import socket
 from abc import abstractmethod
 
 from core.type import PID, GameResult
-from interact.player import Player, TCPPlayer
+from interact.player import Player, TCPPlayer, _send
 from interact.interpret import run, AsyncAggregateInterpreter
+from interact.serial import Accumulator
 from phase.game import game_loop
 from phase.setup import create_initial_state
 
@@ -17,11 +18,6 @@ log = logging.getLogger("server")
 
 class GameServer:
   """Abstraction for hosting a game."""
-
-  @abstractmethod
-  def await_players(self) -> tuple[Player, Player]:
-    """Wait for two players to connect. Returns (red, blue) players."""
-    pass
 
   @abstractmethod
   def run_game(self, seed: int | None = None) -> GameResult:
@@ -41,7 +37,7 @@ class TCPGameServer(GameServer):
         self._port = port
         self._server_sock: socket.socket | None = None
 
-    def await_players(self) -> tuple[Player, Player]:
+    def _await_sockets(self) -> tuple[socket.socket, socket.socket]:
         self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_sock.bind((self._host, self._port))
@@ -53,11 +49,20 @@ class TCPGameServer(GameServer):
         blue_sock, blue_addr = self._server_sock.accept()
         log.info("BLUE connected from %s", blue_addr)
 
-        return TCPPlayer(red_sock, "RED"), TCPPlayer(blue_sock, "BLUE")
+        return red_sock, blue_sock
 
     def run_game(self, seed: int | None = None) -> GameResult:
-        red, blue = self.await_players()
+        red_sock, blue_sock = self._await_sockets()
         g = create_initial_state(seed=seed)
+
+        acc = Accumulator(g)
+        serializer = acc.serializer()
+        catalog_msg = {"type": "catalog", "cards": acc.catalog()}
+        _send(red_sock, catalog_msg)
+        _send(blue_sock, catalog_msg)
+
+        red = TCPPlayer(red_sock, "RED", serializer)
+        blue = TCPPlayer(blue_sock, "BLUE", serializer)
 
         red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
         blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")

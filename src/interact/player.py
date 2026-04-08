@@ -2,10 +2,10 @@ import json
 import logging
 import socket
 from abc import abstractmethod
-from dataclasses import asdict, dataclass
-from enum import Enum
+from dataclasses import dataclass
 
 from core.type import Option, PlayerView, PromptHalf
+from interact.serial import Serializer
 
 log = logging.getLogger("server")
 
@@ -73,18 +73,8 @@ class ScriptedInterpreter(Player):
 
 # ── JSON wire helpers ─────────────────────────────────────────
 
-class _GameEncoder(json.JSONEncoder):
-    """Handles Enum and tuple serialization for the wire protocol."""
-    def default(self, o):
-        if isinstance(o, Enum):
-            return o.name
-        return super().default(o)
-
-def _serialize_view(view: PlayerView) -> dict:
-    return json.loads(json.dumps(asdict(view), cls=_GameEncoder))
-
 def _send(sock: socket.socket, msg: dict) -> None:
-    data = json.dumps(msg, cls=_GameEncoder) + "\n"
+    data = json.dumps(msg) + "\n"
     sock.sendall(data.encode())
 
 def _recv(sock: socket.socket) -> dict:
@@ -102,14 +92,17 @@ def _recv(sock: socket.socket) -> dict:
 class TCPPlayer(Player):
     """Server-side Player backed by a TCP socket."""
 
-    def __init__(self, sock: socket.socket, label: str = "?"):
+    def __init__(self, sock: socket.socket, label: str = "?", serializer: Serializer | None = None):
         self._sock = sock
         self._label = label
+        self._serializer = serializer
 
     def push_state(self, view: PlayerView) -> None:
         log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d)",
                   self._label, view.hp, len(view.hand), view.deck_size)
-        _send(self._sock, {"type": "state", "view": _serialize_view(view)})
+        assert self._serializer is not None
+        view_data = self._serializer.player_view(view)
+        _send(self._sock, {"type": "state", "view": view_data})
 
     def request(self, prompt_half: PromptHalf) -> Option:
         log.info("[%s] request: %r  options=%s",

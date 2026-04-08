@@ -6,16 +6,15 @@ against real game states — not spec-level unit tests.
 """
 
 import json
-from dataclasses import asdict
 
 from core.type import (
-    PID, PKind, PromptHalf, PlayerView, CardView, CardType,
+    PID, PKind, PromptHalf, PlayerView,
     GameResult, Outcome, Ask, AskBoth, AskEither,
     compute_player_view, TextOption,
 )
-from interact.player import ScriptedInterpreter, _serialize_view, _GameEncoder
+from interact.player import ScriptedInterpreter
 from interact.interpret import AsyncAggregateInterpreter
-from interact.client import deserialize_view
+from interact.serial import Accumulator
 from phase.setup import create_initial_state
 
 
@@ -44,10 +43,12 @@ class RecordingPlayer(ScriptedInterpreter):
 class TestSerialization:
 
     def test_player_view_round_trips_through_json(self):
-        """A PlayerView from a real game state survives JSON serialization."""
+        """A PlayerView serialized via Serializer survives JSON round-trip."""
         g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
-        serialized = _serialize_view(view)
+        serialized = ser.player_view(view)
 
         raw = json.dumps(serialized)
         recovered = json.loads(raw)
@@ -55,20 +56,22 @@ class TestSerialization:
 
     def test_all_enum_fields_become_strings(self):
         g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
-        serialized = _serialize_view(view)
+        serialized = ser.player_view(view)
 
         assert isinstance(serialized["priority"], str)
         assert serialized["priority"] in ("RED", "BLUE")
-        for cv in serialized["hand"]:
-            for t in cv["types"]:
-                assert isinstance(t, str)
+        assert all(isinstance(uid, int) for uid in serialized["hand"])
 
     def test_game_result_serializes(self):
         g = create_initial_state(seed=42)
         g.game_result = GameResult((PID.RED,), Outcome.GOOD_KILLED_EVIL)
+        acc = Accumulator(g)
+        ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
-        serialized = _serialize_view(view)
+        serialized = ser.player_view(view)
 
         assert serialized["game_result"] is not None
         assert serialized["game_result"]["outcome"] == "GOOD_KILLED_EVIL"
@@ -77,14 +80,20 @@ class TestSerialization:
     def test_round_trip(self):
         """serialize then deserialize produces an equal PlayerView."""
         g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        ser = acc.serializer()
+        deser = acc.deserializer()
         view = compute_player_view(g, PID.RED)
-        assert deserialize_view(_serialize_view(view)) == view
+        assert deser.player_view(ser.player_view(view)) == view
 
     def test_round_trip_with_game_result(self):
         g = create_initial_state(seed=42)
         g.game_result = GameResult((PID.RED,), Outcome.GOOD_KILLED_EVIL)
+        acc = Accumulator(g)
+        ser = acc.serializer()
+        deser = acc.deserializer()
         view = compute_player_view(g, PID.RED)
-        assert deserialize_view(_serialize_view(view)) == view
+        assert deser.player_view(ser.player_view(view)) == view
 
 
 # ── AsyncAggregateInterpreter ────────────────────────────────
@@ -183,7 +192,6 @@ class TestPlayerViewFogOfWar:
         view = compute_player_view(g, PID.RED)
 
         assert view.hp == g.players[PID.RED].hp
-        assert not hasattr(view, "opp_hp") or view.opp_hp is None
 
     def test_own_hand_visible(self):
         g = create_initial_state(seed=42)

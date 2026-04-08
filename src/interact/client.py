@@ -1,5 +1,5 @@
 """
-Client-side: GameClient contract, CLIGameClient, deserialization, TCP transport.
+Client-side: GameClient contract, CLIGameClient, TCP transport.
 """
 
 import json
@@ -7,11 +7,9 @@ import logging
 import socket
 from abc import abstractmethod
 
-from core.type import (
-    PID, CardType, CardView, GameResult, Outcome,
-    PlayerView,
-)
+from core.type import Card, PlayerView
 from interact.player import _recv, _send
+from interact.serial import Deserializer
 
 log = logging.getLogger("client")
 
@@ -40,6 +38,9 @@ class GameClient:
 
 # ── CLIGameClient ─────────────────────────────────────────────
 
+def _card_names(cards: list[Card]) -> str:
+    return ", ".join(c.display_name for c in cards)
+
 class CLIGameClient(GameClient):
     """Terminal-based game client."""
 
@@ -48,15 +49,13 @@ class CLIGameClient(GameClient):
                   view.hp, len(view.hand), view.deck_size)
 
         print("\n--- Game State ---")
-        print(f"  HP: {view.deck_size}")
+        print(f"  HP: {view.hp}")
 
         if view.hand:
-            hand_str = ", ".join(c.display_name for c in view.hand)
-            print(f"  Hand: [{hand_str}]")
+            print(f"  Hand: [{_card_names(view.hand)}]")
 
         if view.equipment:
-            eq_str = ", ".join(c.display_name for c in view.equipment)
-            print(f"  Equipment: [{eq_str}]")
+            print(f"  Equipment: [{_card_names(view.equipment)}]")
 
         for i, (weapon, sharpness, kills) in enumerate(view.weapons):
             if weapon is not None:
@@ -66,12 +65,9 @@ class CLIGameClient(GameClient):
 
         print(f"  Deck: {view.deck_size}  Refresh: {view.refresh_size}  Discard: {view.discard_size}")
 
-        # Sidebar
         if view.sidebar:
-            sb_str = ", ".join(c.display_name for c in view.sidebar)
-            print(f"  Sidebar: [{sb_str}]")
+            print(f"  Sidebar: [{_card_names(view.sidebar)}]")
 
-        # Action field
         for label, cards in [
             ("Top Distant", view.action_field_top_distant),
             ("Top Hidden", view.action_field_top_hidden),
@@ -79,10 +75,8 @@ class CLIGameClient(GameClient):
             ("Bottom Distant", view.action_field_bottom_distant),
         ]:
             if cards:
-                names = ", ".join(c.display_name for c in cards)
-                print(f"  {label}: [{names}]")
+                print(f"  {label}: [{_card_names(cards)}]")
 
-        # Opponent
         print(f"  Opponent: {view.opp_equipment_count} equipment, "
               f"deck {view.opp_deck_size}, refresh {view.opp_refresh_size}, "
               f"discard {view.opp_discard_size}")
@@ -92,8 +86,7 @@ class CLIGameClient(GameClient):
             ("Opp Bottom Distant", view.opp_action_field_bottom_distant),
         ]:
             if cards:
-                names = ", ".join(c.display_name for c in cards)
-                print(f"  {label}: [{names}]")
+                print(f"  {label}: [{_card_names(cards)}]")
 
         hidden_top = view.opp_action_field_top_hidden_count
         hidden_bot = view.opp_action_field_bottom_hidden_count
@@ -130,56 +123,6 @@ class CLIGameClient(GameClient):
         print(f"\n[!] {text}")
 
 
-# ── Deserialization ───────────────────────────────────────────
-
-def _deserialize_card_view(d: dict) -> CardView:
-    return CardView(
-        name=d["name"],
-        display_name=d["display_name"],
-        level=d["level"],
-        types=tuple(CardType[t] for t in d["types"]),
-    )
-
-def deserialize_view(d: dict) -> PlayerView:
-    """Reconstruct a PlayerView from a JSON-deserialized dict."""
-    def _cards(lst): return [_deserialize_card_view(c) for c in lst]
-    def _weapon(w): return (
-        _deserialize_card_view(w[0]) if w[0] is not None else None,
-        w[1], w[2],
-    )
-    gr = d["game_result"]
-    game_result = None if gr is None else GameResult(
-        winners=tuple(PID[w] for w in gr["winners"]),
-        outcome=Outcome[gr["outcome"]],
-    )
-    return PlayerView(
-        hp=d["hp"],
-        hand=_cards(d["hand"]),
-        equipment=_cards(d["equipment"]),
-        weapons=[_weapon(w) for w in d["weapons"]],
-        deck_size=d["deck_size"],
-        refresh_size=d["refresh_size"],
-        discard_size=d["discard_size"],
-        action_field_top_distant=_cards(d["action_field_top_distant"]),
-        action_field_top_hidden=_cards(d["action_field_top_hidden"]),
-        action_field_bottom_hidden=_cards(d["action_field_bottom_hidden"]),
-        action_field_bottom_distant=_cards(d["action_field_bottom_distant"]),
-        sidebar=_cards(d["sidebar"]),
-        opp_equipment_count=d["opp_equipment_count"],
-        opp_weapons=[tuple(w) for w in d["opp_weapons"]],
-        opp_deck_size=d["opp_deck_size"],
-        opp_refresh_size=d["opp_refresh_size"],
-        opp_discard_size=d["opp_discard_size"],
-        opp_action_field_top_distant=_cards(d["opp_action_field_top_distant"]),
-        opp_action_field_top_hidden_count=d["opp_action_field_top_hidden_count"],
-        opp_action_field_bottom_hidden_count=d["opp_action_field_bottom_hidden_count"],
-        opp_action_field_bottom_distant=_cards(d["opp_action_field_bottom_distant"]),
-        priority=PID[d["priority"]],
-        guard_deck_size=d["guard_deck_size"],
-        game_result=game_result,
-    )
-
-
 # ── TCP transport + main loop ─────────────────────────────────
 
 def run_client(host: str, port: int, client: GameClient):
@@ -188,14 +131,19 @@ def run_client(host: str, port: int, client: GameClient):
     log.info("Connected to %s:%d", host, port)
     print(f"Connected to {host}:{port}")
 
+    deserializer: Deserializer | None = None
+
     try:
         while True:
             msg = _recv(sock)
             log.debug("recv: type=%s", msg["type"])
 
             match msg["type"]:
+                case "catalog":
+                    deserializer = Deserializer.from_catalog(msg["cards"])
                 case "state":
-                    client.on_state(deserialize_view(msg["view"]))
+                    assert deserializer is not None
+                    client.on_state(deserializer.player_view(msg["view"]))
                 case "prompt":
                     choice = client.on_prompt(msg["text"], msg["options"])
                     _send(sock, {"type": "response", "choice": choice})
