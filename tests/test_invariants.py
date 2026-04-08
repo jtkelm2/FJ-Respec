@@ -4,7 +4,7 @@ Cross-cutting invariants: properties that must hold across any phase or action.
 The cardinal rule: cards are never created or destroyed.
 """
 
-from core.type import PID, Slot, Death, Alignment
+from core.type import PID, Slot, Death, Alignment, TextOption, WeaponSlotOption
 from core.engine import do
 from interact.interpret import run
 from helpers import interp, count_all_cards
@@ -35,14 +35,13 @@ class TestRefreshDealCounts:
     def test_refresh_deals_fewer_action_cards_when_slots_occupied(self):
         """With 1 slot already filled, 3 empty -> deals 2 (3 - 1)."""
         g = create_initial_state(seed=42)
-        # Fill one action slot for RED before refresh
         g.players[PID.RED].action_field.top_distant.slot(food(99))
 
         run(g, refresh_phase(), interp())
 
         af = g.players[PID.RED].action_field
         filled = [s for s in af.slots_in_fill_order() if not s.is_empty()]
-        assert len(filled) == 3  # 1 pre-filled + 2 dealt (3 empty - 1)
+        assert len(filled) == 3
 
 
 class TestSetupRoleAssignment:
@@ -59,8 +58,6 @@ class TestSetupRoleAssignment:
         index BLUE gets, which (for 2/3 of seeds) changes the alignment.
         """
         g = create_initial_state(seed=42)
-        # Pin the exact alignment for this seed; if the mutant swaps
-        # roles[1] with roles[2] and they differ, this assertion fails.
         assert g.players[PID.BLUE].alignment == Alignment.GOOD
 
 
@@ -77,9 +74,7 @@ class TestDeadPlayerSkipped:
 
         run(g, refresh_phase(), interp())
 
-        # Dead player should NOT receive hand cards
         assert len(g.players[PID.RED].hand.cards) == 0
-        # Alive player still gets their hand
         assert len(g.players[PID.BLUE].hand.cards) == 4
 
 
@@ -97,7 +92,7 @@ class TestCardConservation:
         e = enemy(5)
         g.players[PID.RED].hand.slot(e)
         before = count_all_cards(g)
-        run(g, resolve_combat(PID.RED, e), interp(0))
+        run(g, resolve_combat(PID.RED, e), interp(TextOption("Fists (5 dmg)")))
         assert count_all_cards(g) == before
 
     def test_conservation_across_weapon_combat(self):
@@ -113,15 +108,14 @@ class TestCardConservation:
         g.players[PID.RED].weapon_slots = [ws]
 
         before = count_all_cards(g)
-        run(g, resolve_combat(PID.RED, e), interp(1))
+        run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(ws)))
         assert count_all_cards(g) == before
 
     def test_conservation_across_manipulation_dump(self):
         g = create_initial_state(seed=42)
         before = count_all_cards(g)
         from phase.manipulation import manipulation_phase
-        # Both dump with empty hands
-        run(g, manipulation_phase(), interp(1, blue=[1]))
+        run(g, manipulation_phase(), interp(TextOption("Dump"), blue=[TextOption("Dump")]))
         assert count_all_cards(g) == before
 
     def test_conservation_across_refresh_then_manipulation(self):
@@ -131,15 +125,13 @@ class TestCardConservation:
 
         run(g, refresh_phase(), interp())
 
-        # After refresh: both players have 4 hand cards, 3 action cards,
-        # 2 manipulation cards. Now manipulate: both dump.
-        # RED has 4 hand cards: 4 discard prompts. BLUE has 4 hand cards.
-        # Script: RED picks Dump(1), discards all(0,0,0,0).
-        #         BLUE picks Dump(1), discards all(0,0,0,0).
-        # Interleaving: RED answered first, runs all dump prompts, then
-        # post-manipulation (no prompts). Then BLUE answered, same.
         from phase.manipulation import manipulation_phase
         run(g, manipulation_phase(),
-            interp(1, 0, 0, 0, 0, blue=[1, 0, 0, 0, 0]))
+            interp(TextOption("Dump"),
+                   TextOption("Discard"), TextOption("Discard"),
+                   TextOption("Discard"), TextOption("Discard"),
+                   blue=[TextOption("Dump"),
+                         TextOption("Discard"), TextOption("Discard"),
+                         TextOption("Discard"), TextOption("Discard")]))
 
         assert count_all_cards(g) == before

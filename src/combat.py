@@ -14,12 +14,10 @@ def _weapon_builder(g: GameState, player: PID, enemy: Card) -> PromptBuilder:
     assert isinstance(enemy_level, int)
 
     pb = PromptBuilder(f"Fight Lv. {enemy_level} enemy:")  # pragma: no mutate
-    pb.add(f"Fists ({enemy_level} dmg)", None)  # pragma: no mutate
+    pb.add(TextOption(f"Fists ({enemy_level} dmg)"))  # pragma: no mutate
     for ws in g.players[player].weapon_slots:
-        if ws.weapon is not None:
-            weapon_level = ws.weapon.level
-            assert weapon_level is not None
-            pb.add(f"Weapon Lv. {weapon_level} ({max(0, enemy_level - weapon_level)} dmg)", ws)  # pragma: no mutate
+        if ws.can_fight(enemy_level):
+            pb.add(WeaponSlotOption(ws))  # pragma: no mutate
     return pb
 
 
@@ -32,10 +30,16 @@ def resolve_combat(resolver: PID, enemy: Card) -> Effect:
 
         pb = _weapon_builder(g, resolver, enemy)
         r = yield pb.build(resolver)
-        ws = pb.decode(r, resolver)
-        assert isinstance(ws, WeaponSlot | None)
-
-        sharpness = 0 if ws is None else ws.sharpness()
+        ws: WeaponSlot | None
+        match r[resolver]:
+            case TextOption(_):
+                ws = None
+                sharpness = 0
+            case WeaponSlotOption(weapon_slot):
+                ws = weapon_slot
+                sharpness = ws.sharpness()
+            case _:
+                raise ValueError(f"Unexpected response: {r[resolver]}")
 
         dmg = max(0, enemy_level - sharpness)
         yield from do(Damage(resolver, dmg, "combat"))(g)  # pragma: no mutate

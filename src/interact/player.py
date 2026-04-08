@@ -5,7 +5,7 @@ from abc import abstractmethod
 from dataclasses import asdict, dataclass
 from enum import Enum
 
-from core.type import PlayerView, PromptHalf
+from core.type import Option, PlayerView, PromptHalf
 
 log = logging.getLogger("server")
 
@@ -17,8 +17,8 @@ class Player:
     pass
 
   @abstractmethod
-  def request(self, prompt_half: PromptHalf) -> int:
-    """Send a prompt and block until the player responds."""
+  def request(self, prompt_half: PromptHalf) -> Option:
+    """Send a prompt and block until the player responds with a chosen Option."""
     pass
 
   @abstractmethod
@@ -41,11 +41,11 @@ class CLIInterpreter(Player):
   def push_state(self, view: PlayerView) -> None:
     pass
 
-  def request(self, prompt_half: PromptHalf) -> int:
+  def request(self, prompt_half: PromptHalf) -> Option:
     print(f"\n[{self.player_name}] {prompt_half.text}")
     for i, opt in enumerate(prompt_half.options):
       print(f"  {i}: {opt}")
-    return int(input("  > "))
+    return prompt_half.options[int(input("  > "))]
 
   def notify(self, text: str) -> None:
     print(text)
@@ -56,12 +56,12 @@ class CLIInterpreter(Player):
 
 @dataclass
 class ScriptedInterpreter(Player):
-  script:list
+  script: list[Option]
 
   def push_state(self, view: PlayerView) -> None:
     pass
 
-  def request(self, prompt_half: PromptHalf):
+  def request(self, prompt_half: PromptHalf) -> Option:
     return self.script.pop(0)
 
   def notify(self, text: str) -> None:
@@ -111,19 +111,19 @@ class TCPPlayer(Player):
                   self._label, view.hp, len(view.hand), view.deck_size)
         _send(self._sock, {"type": "state", "view": _serialize_view(view)})
 
-    def request(self, prompt_half: PromptHalf) -> int:
+    def request(self, prompt_half: PromptHalf) -> Option:
         log.info("[%s] request: %r  options=%s",
                  self._label, prompt_half.text, prompt_half.options)
         _send(self._sock, {
             "type": "prompt",
             "text": prompt_half.text,
-            "options": prompt_half.options,
+            "options": [str(o) for o in prompt_half.options],
         })
         msg = _recv(self._sock)
         choice = msg["choice"]
         log.info("[%s] response: %d (%s)",
                  self._label, choice, prompt_half.options[choice] if choice < len(prompt_half.options) else "?")
-        return choice
+        return prompt_half.options[choice]
 
     def notify(self, text: str) -> None:
         log.info("[%s] notify: %s", self._label, text)

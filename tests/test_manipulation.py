@@ -5,7 +5,7 @@ Tests private helpers directly for deterministic control over prompt
 sequences, plus an integration test for the full simultaneously-driven phase.
 """
 
-from core.type import PID, Card, CardType, Slot
+from core.type import PID, Card, CardType, Slot, TextOption, CardOption
 from core.engine import do
 from interact.interpret import run
 from helpers import interp
@@ -25,8 +25,7 @@ class TestDump:
         c1, c2 = food(1), food(2)
         p.hand.slot(c1, c2)  # hand order: [c2, c1]
 
-        # 0 = Discard for each card
-        run(g, _dump(PID.RED), interp(0, 0))
+        run(g, _dump(PID.RED), interp(TextOption("Discard"), TextOption("Discard")))
 
         assert p.hand.is_empty()
         blue_discard = g.players[PID.BLUE].discard
@@ -39,8 +38,7 @@ class TestDump:
         c1, c2 = food(3), food(4)
         p.hand.slot(c1, c2)
 
-        # 1 = Refresh for each card
-        run(g, _dump(PID.RED), interp(1, 1))
+        run(g, _dump(PID.RED), interp(TextOption("Refresh"), TextOption("Refresh")))
 
         assert p.hand.is_empty()
         blue_refresh = g.players[PID.BLUE].refresh
@@ -53,8 +51,7 @@ class TestDump:
         c1, c2, c3 = food(1), food(2), food(3)
         p.hand.slot(c1, c2, c3)  # hand order: [c3, c2, c1]
 
-        # c3: Discard(0), c2: Refresh(1), c1: Discard(0)
-        run(g, _dump(PID.RED), interp(0, 1, 0))
+        run(g, _dump(PID.RED), interp(TextOption("Discard"), TextOption("Refresh"), TextOption("Discard")))
 
         assert c3 in g.players[PID.BLUE].discard.cards
         assert c2 in g.players[PID.BLUE].refresh.cards
@@ -67,8 +64,7 @@ class TestDump:
         normal = food(2)
         p.hand.slot(elusive, normal)  # hand order: [normal, elusive]
 
-        # Only normal card gets a prompt: Discard(0)
-        run(g, _dump(PID.RED), interp(0))
+        run(g, _dump(PID.RED), interp(TextOption("Discard")))
 
         assert p.hand.is_empty()
         assert elusive in g.players[PID.BLUE].refresh.cards
@@ -94,9 +90,7 @@ class TestManipulate:
         p.hand.slot(h1)
 
         forcing = {'val': False}
-        # Options: [mf2.display, mf1.display, "Done"] -> choose 2 (Done)
-        # Then force prompt (equipment exists from setup): choose 0 (No)
-        run(g, _manipulate(PID.RED, forcing), interp(2, 0))
+        run(g, _manipulate(PID.RED, forcing), interp(TextOption("Done"), TextOption("No")))
 
         assert mf1 in p.sidebar.cards
         assert mf2 in p.sidebar.cards
@@ -112,9 +106,7 @@ class TestManipulate:
         p.hand.slot(h1)
 
         forcing = {'val': False}
-        # Choose mf[0] (mf1), then hand[0] (h1), then Done (index 1)
-        # Then force prompt (equipment exists from setup): choose 0 (No)
-        run(g, _manipulate(PID.RED, forcing), interp(0, 0, 1, 0))
+        run(g, _manipulate(PID.RED, forcing), interp(CardOption(mf1), CardOption(h1), TextOption("Done"), TextOption("No")))
 
         assert h1 in p.sidebar.cards
         assert mf1 in p.hand.cards
@@ -129,9 +121,7 @@ class TestManipulate:
         equip = p.equipment.cards[0]  # role card from setup
 
         forcing = {'val': False}
-        # Done immediately (1 mf card + Done -> choose 1)
-        # Force prompt: ["No", "Discard <equip>"] -> choose 1
-        run(g, _manipulate(PID.RED, forcing), interp(1, 1))
+        run(g, _manipulate(PID.RED, forcing), interp(TextOption("Done"), CardOption(equip)))
 
         assert forcing['val']
         assert equip in p.discard.cards
@@ -150,19 +140,12 @@ class TestManipulate:
         p.sidebar.slot(mf1)
         p.hand.slot(h1)
 
-        # Add a second equipment card
         extra_equip = Card("shield", "Shield", "", None, (CardType.EQUIPMENT,), False, False)
         p.equipment.slot(extra_equip)
         role_card = [c for c in p.equipment.cards if c is not extra_equip][0]
 
         forcing = {'val': False}
-        # Done immediately (1 mf card + Done -> choose 1)
-        # Force prompt: ["No", "Discard Shield", "Discard <role>"] -> choose 2 (role card)
-        # equipment_cards order: [extra_equip, role_card] (extra slotted last = front)
-        # Wait, slot inserts at front: equipment = [extra_equip, role_card]
-        # Options: ["No", "Discard Shield", "Discard <role>"]
-        # choice=2 -> equipment_cards[2-1] = equipment_cards[1] = role_card
-        run(g, _manipulate(PID.RED, forcing), interp(1, 2))
+        run(g, _manipulate(PID.RED, forcing), interp(TextOption("Done"), CardOption(role_card)))
 
         assert forcing['val']
         assert role_card in p.discard.cards
@@ -180,8 +163,6 @@ class TestPostManipulation:
 
         mf1, mf2 = food(1), food(2)
         p.sidebar.slot(mf1, mf2)
-        # mf will have 2 + 1 drawn = 3 cards; 4 open action slots
-        # -> 3 cards dealt, 1 slot empty, 0 remaining to refresh
 
         run(g, _post_manipulation(PID.RED, False), interp())
 
@@ -195,18 +176,15 @@ class TestPostManipulation:
         p = g.players[PID.RED]
         other_p = g.players[PID.BLUE]
 
-        # Fill opponent's action field so nothing can be dealt
         for slot in other_p.action_field.slots_in_fill_order():
             slot.slot(food(99))
 
         mf1 = food(7)
         p.sidebar.slot(mf1)
-        # mf has 1 + 1 drawn = 2 cards, 0 open slots -> both refreshed
 
         run(g, _post_manipulation(PID.RED, False), interp())
 
         assert p.sidebar.is_empty()
-        # Cards end up in opponent's refresh pile
         assert len(other_p.refresh.cards) >= 2
 
     def test_force_lets_player_choose_card_to_deal(self):
@@ -216,12 +194,10 @@ class TestPostManipulation:
 
         mf1 = food(1)
         p.sidebar.slot(mf1)
-        # Fill 3 of 4 opponent action slots -> 1 open
         for i, slot in enumerate(other_p.action_field.slots_in_fill_order()):
             if i < 3:
                 slot.slot(food(90 + i))
-        # mf: 1 + 1 drawn = 2 cards, 1 open slot, forcing -> prompt to choose
-        run(g, _post_manipulation(PID.RED, True), interp(0))
+        run(g, _post_manipulation(PID.RED, True), interp(CardOption(mf1)))
 
         filled = [s for s in other_p.action_field.slots_in_fill_order()
                   if not s.is_empty()]
@@ -237,17 +213,14 @@ class TestPostManipulation:
         p = g.players[PID.RED]
         other_p = g.players[PID.BLUE]
 
-        # Fill ALL opponent action slots
         for slot in other_p.action_field.slots_in_fill_order():
             slot.slot(food(99))
 
-        # Put 2 cards in mf; +1 drawn = 3 to refresh
         mf1, mf2 = food(7), food(8)
         p.sidebar.slot(mf1, mf2)
 
         run(g, _post_manipulation(PID.RED, False), interp())
 
-        # Correct behavior: mf should be completely empty
         assert p.sidebar.is_empty(), (
             f"Expected empty manipulation field, but {len(p.sidebar.cards)} "
             f"card(s) remain. Likely list-mutation-during-iteration bug in "
@@ -274,13 +247,11 @@ class TestManipulationPhaseIntegration:
         red = g.players[PID.RED]
         blue = g.players[PID.BLUE]
 
-        # Give RED mf and hand cards
         mf1 = food(1)
         h1 = food(2)
         red.sidebar.slot(mf1)
         red.hand.slot(h1)
 
-        # Fill 3 of BLUE's 4 action slots -> 1 open
         for i, slot in enumerate(blue.action_field.slots_in_fill_order()):
             if i < 3:
                 slot.slot(food(90 + i))
@@ -289,25 +260,18 @@ class TestManipulationPhaseIntegration:
         from interact.player import ScriptedInterpreter
         from interact.interpret import AggregateInterpreter
 
-        # RED: Manipulate(0), Done(1), Force(1), PostManip choose card(0)
-        # BLUE: Dump(1) with empty hand
-        red_script = ScriptedInterpreter([0, 1, 1, 0])
-        blue_script = ScriptedInterpreter([1])
+        equip = red.equipment.cards[0]
+        red_script = ScriptedInterpreter([TextOption("Manipulate"), TextOption("Done"), CardOption(equip), CardOption(mf1)])
+        blue_script = ScriptedInterpreter([TextOption("Dump")])
         run(g, manipulation_phase(),
             AggregateInterpreter(red_script, blue_script))
 
-        # Force cost: equipment discarded
         assert len(red.equipment.cards) == 0
 
-        # All 4 of BLUE's action slots now occupied
         filled = [s for s in blue.action_field.slots_in_fill_order()
                   if not s.is_empty()]
         assert len(filled) == 4
 
-        # KEY: if forcing was active, RED's script is fully consumed (4 choices).
-        # If the mutant makes forcing=None (falsy), post-manipulation skips
-        # the force prompt and RED's script has 1 leftover choice -> the
-        # interpreter would NOT be empty.
         assert len(red_script.script) == 0, (
             f"RED interpreter has {len(red_script.script)} unconsumed choice(s). "
             f"Forcing prompt was likely skipped (forcing flag lost)."
@@ -320,18 +284,15 @@ class TestManipulationPhaseIntegration:
         initial_blue = len(g.players[PID.BLUE].deck.cards)
 
         from phase.manipulation import manipulation_phase
-        run(g, manipulation_phase(), interp(1, blue=[1]))
+        run(g, manipulation_phase(), interp(TextOption("Dump"), blue=[TextOption("Dump")]))
 
-        # Each deck lost 1 card (drawn by opponent's post-manipulation)
         assert len(g.players[PID.RED].deck.cards) == initial_red - 1
         assert len(g.players[PID.BLUE].deck.cards) == initial_blue - 1
 
-        # Each action field has exactly 1 card
         for pid in [PID.RED, PID.BLUE]:
             af = g.players[pid].action_field
             total = sum(len(s.cards) for s in af.slots_in_fill_order())
             assert total == 1
 
-        # Manipulation fields emptied
         assert g.players[PID.RED].sidebar.is_empty()
         assert g.players[PID.BLUE].sidebar.is_empty()

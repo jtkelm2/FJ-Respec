@@ -7,7 +7,7 @@ Metamorphic relation:  damage = max(0, enemy_level - sharpness)
 """
 
 import pytest
-from core.type import PID, CardType, WeaponSlot
+from core.type import PID, CardType, WeaponSlot, TextOption, WeaponSlotOption
 from interact.interpret import run
 from combat import resolve_combat, can_use_weapon
 from helpers import interp
@@ -36,21 +36,21 @@ class TestFistsCombat:
         g = create_initial_state(seed=42)
         e = enemy(enemy_lv)
         g.players[PID.RED].hand.slot(e)
-        run(g, resolve_combat(PID.RED, e), interp(0))
+        run(g, resolve_combat(PID.RED, e), interp(TextOption(f"Fists ({enemy_lv} dmg)")))
         assert g.players[PID.RED].hp == 20 - enemy_lv
 
     def test_fists_sends_enemy_to_discard(self):
         g = create_initial_state(seed=42)
         e = enemy(3)
         g.players[PID.RED].hand.slot(e)
-        run(g, resolve_combat(PID.RED, e), interp(0))
+        run(g, resolve_combat(PID.RED, e), interp(TextOption("Fists (3 dmg)")))
         assert e in g.players[PID.RED].discard.cards
 
     def test_fists_lethal_kills_player(self):
         g = create_initial_state(seed=42)
         e = enemy(20)
         g.players[PID.RED].hand.slot(e)
-        run(g, resolve_combat(PID.RED, e), interp(0))
+        run(g, resolve_combat(PID.RED, e), interp(TextOption("Fists (20 dmg)")))
         assert g.players[PID.RED].is_dead
 
 
@@ -64,7 +64,7 @@ class TestWeaponCombat:
         g.players[PID.RED].hand.slot(e)
         g.players[PID.RED].weapon_slots = [_armed(7)]
 
-        run(g, resolve_combat(PID.RED, e), interp(1))
+        run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(g.players[PID.RED].weapon_slots[0])))
         assert g.players[PID.RED].hp == 20 - 3  # max(0, 10-7) = 3
 
     def test_weapon_sends_enemy_to_killstack(self):
@@ -74,7 +74,7 @@ class TestWeaponCombat:
         ws = _armed(5)
         g.players[PID.RED].weapon_slots = [ws]
 
-        run(g, resolve_combat(PID.RED, e), interp(1))
+        run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(ws)))
         assert e in ws.killstack.cards
 
     @pytest.mark.parametrize("enemy_lv,sharpness", [
@@ -87,7 +87,7 @@ class TestWeaponCombat:
         g.players[PID.RED].hand.slot(e)
         g.players[PID.RED].weapon_slots = [_armed(sharpness)]
 
-        run(g, resolve_combat(PID.RED, e), interp(1))
+        run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(g.players[PID.RED].weapon_slots[0])))
         assert g.players[PID.RED].hp == 20
 
 
@@ -107,10 +107,10 @@ class TestDamageMonotonicity:
 
             if sharp == 0:
                 # fists
-                run(g, resolve_combat(PID.RED, e), interp(0))
+                run(g, resolve_combat(PID.RED, e), interp(TextOption(f"Fists ({enemy_lv} dmg)")))
             else:
                 g.players[PID.RED].weapon_slots = [_armed(sharp)]
-                run(g, resolve_combat(PID.RED, e), interp(1))
+                run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(g.players[PID.RED].weapon_slots[0])))
 
             actual_damage = 20 - g.players[PID.RED].hp
             assert 0 <= actual_damage <= prev_damage
@@ -169,7 +169,6 @@ class TestWeaponSlotSelection:
         ws1 = _armed(9)   # sharpness 9 -> 1 damage
         g.players[PID.RED].weapon_slots = [ws0, ws1]
 
-        # choice=2 should select ws1 (index 1)
-        run(g, resolve_combat(PID.RED, e), interp(2))
+        run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(ws1)))
         assert g.players[PID.RED].hp == 20 - 1  # 10 - 9 = 1 damage
         assert e in ws1.killstack.cards

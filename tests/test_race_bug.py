@@ -10,7 +10,7 @@ import threading
 import time
 from queue import Queue
 
-from core.type import PID, PromptHalf, PlayerView, Ask
+from core.type import PID, PromptHalf, PlayerView, Ask, TextOption, Option
 from core.engine import simultaneously
 from interact.player import Player
 from interact.interpret import run, AsyncAggregateInterpreter
@@ -24,17 +24,17 @@ class QueuePlayer(Player):
     def __init__(self, label: str):
         self.label = label
         self.prompts_received: Queue[PromptHalf] = Queue()
-        self.answers: Queue[int] = Queue()
+        self.answers: Queue[Option] = Queue()
         self.states: list[PlayerView] = []
 
     def push_state(self, view: PlayerView) -> None:
         self.states.append(view)
 
-    def request(self, prompt_half: PromptHalf) -> int:
+    def request(self, prompt_half: PromptHalf) -> Option:
         log.info("[%s] request: %r", self.label, prompt_half.text)
         self.prompts_received.put(prompt_half)
         answer = self.answers.get()
-        log.info("[%s] answering: %d", self.label, answer)
+        log.info("[%s] answering: %s", self.label, answer)
         return answer
 
     def notify(self, text: str) -> None:
@@ -73,36 +73,31 @@ def test_no_duplicate_prompts_in_either_race():
 
     def simple_effect(pid):
         def eff(g):
-            response = yield Ask(pid, f"{pid.name}: Pick", ["A", "B"])
-            response = yield Ask(pid, f"{pid.name}: Pick again", ["X", "Y"])
+            response = yield Ask(pid, f"{pid.name}: Pick", [TextOption("A"), TextOption("B")])
+            response = yield Ask(pid, f"{pid.name}: Pick again", [TextOption("X"), TextOption("Y")])
         return eff
 
     effect = simultaneously({pid: simple_effect(pid) for pid in PID})
     engine_thread = threading.Thread(target=run, args=(g, effect, interp), name="engine")
     engine_thread.start()
 
-    # Both players receive first prompt
     red.prompts_received.get(timeout=2)
     blue.prompts_received.get(timeout=2)
 
-    # BLUE answers first — wins the race
-    blue.answers.put(0)
+    blue.answers.put(TextOption("A"))
     time.sleep(0.1)
 
-    # RED should NOT have received a second prompt (the bug was a duplicate here)
     assert red.prompts_received.empty(), "RED received a duplicate prompt"
 
-    # Now answer RED's original (still-outstanding) prompt
-    red.answers.put(0)
+    red.answers.put(TextOption("A"))
     time.sleep(0.1)
 
-    # Drain remaining prompts
     for _ in range(10):
         time.sleep(0.05)
         for player in [red, blue]:
             while not player.prompts_received.empty():
                 player.prompts_received.get_nowait()
-                player.answers.put(0)
+                player.answers.put(TextOption("X"))
 
     engine_thread.join(timeout=3)
     assert not engine_thread.is_alive()

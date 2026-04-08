@@ -1,11 +1,11 @@
 import logging
-import queue
+from queue import Queue
 import threading
 from abc import abstractmethod
 from dataclasses import dataclass
 
 from core.type import (
-    PID, GameState, Prompt, PKind, PromptHalf,
+    PID, GameState, Prompt, PKind, PromptHalf, Option,
     Response, PlayerView, compute_player_view,
     Effect,
 )
@@ -64,7 +64,7 @@ class AsyncAggregateInterpreter(Interpreter):
         self._g = g
         self._players = {PID.RED: red, PID.BLUE: blue}
         self._last_view: dict[PID, PlayerView] = {}
-        self._either_results: queue.Queue[tuple[PID, int]] = queue.Queue()
+        self._either_results: Queue[tuple[PID, Option]] = Queue()
         self._outstanding: set[PID] = set()
 
     def push_if_changed(self, pid: PID) -> None:
@@ -86,7 +86,7 @@ class AsyncAggregateInterpreter(Interpreter):
         match prompt.kind:
             case PKind.BOTH:
                 log.info("interpret: BOTH — sending to %s concurrently", players_in_prompt)
-                results: dict[PID, int] = {}
+                results: dict[PID, Option] = {}
                 errors: list[Exception] = []
 
                 def _ask(pid: PID, half: PromptHalf):
@@ -125,6 +125,6 @@ class AsyncAggregateInterpreter(Interpreter):
                     rpid, choice = self._either_results.get()
                     self._outstanding.discard(rpid)
                     if rpid in prompt.for_player:
-                        log.info("interpret: EITHER answered by %s (choice=%d)", rpid.name, choice)
+                        log.info("interpret: EITHER answered by %s (choice=%s)", rpid.name, choice)
                         return {rpid: choice}
                     log.warning("interpret: EITHER — stale result from %s, discarding", rpid.name)

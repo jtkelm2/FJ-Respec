@@ -6,6 +6,7 @@ import pytest
 from core.type import (
     PID, CardType, Slot, ActionField, Alignment, WeaponSlot, Role,
     Equip, Wield, Disarm, Resolve, Eat,
+    TextOption, CardOption, SlotOption, WeaponSlotOption,
 )
 from core.engine import do
 from interact.interpret import run
@@ -123,8 +124,7 @@ class TestResolveEnemy:
         e = enemy(5)
         g.players[PID.RED].action_field.top_distant.slot(e)
 
-        # choice 0 = fists
-        run(g, do(Resolve(PID.RED, e)), interp(0))
+        run(g, do(Resolve(PID.RED, e)), interp(TextOption(f"Fists ({e.level} dmg)")))
         assert g.players[PID.RED].hp == 15
         assert e in g.players[PID.RED].discard.cards
 
@@ -132,12 +132,11 @@ class TestResolveEnemy:
         g = minimal_game()
         e = enemy(5)
         g.players[PID.RED].action_field.top_distant.slot(e)
-        g.players[PID.RED].weapon_slots = [_armed(5, sharpness_level=5)]
+        ws = _armed(5, sharpness_level=5)
+        g.players[PID.RED].weapon_slots = [ws]
 
-        # choice 1 = weapon; sharpness = min(5, 5) = 5, damage = 5-5 = 0
-        run(g, do(Resolve(PID.RED, e)), interp(1))
+        run(g, do(Resolve(PID.RED, e)), interp(WeaponSlotOption(ws)))
         assert g.players[PID.RED].hp == 20
-        ws = g.players[PID.RED].weapon_slots[0]
         assert e in ws.killstack.cards
 
 
@@ -193,8 +192,7 @@ class TestResolveWeapon:
         g.players[PID.RED].weapon_slots = [ws0, ws1]
         g.players[PID.RED].action_field.top_distant.slot(new_w)
 
-        # choice 1 = second weapon slot
-        run(g, do(Wield(PID.RED, new_w)), interp(1))
+        run(g, do(Wield(PID.RED, new_w)), interp(WeaponSlotOption(ws1)))
         assert ws1.weapon is new_w
         assert ws0.weapon is w1  # untouched
         assert w2 in g.players[PID.RED].discard.cards
@@ -223,8 +221,7 @@ class TestResolveEquipment:
         g.players[PID.RED].equipment.slot(eq2)
         g.players[PID.RED].action_field.top_distant.slot(eq3)
 
-        # Choice 0 = discard first listed equipment
-        run(g, do(Resolve(PID.RED, eq3)), interp(0))
+        run(g, do(Resolve(PID.RED, eq3)), interp(CardOption(eq2)))
         assert eq3 in g.players[PID.RED].equipment.cards
         assert len(g.players[PID.RED].equipment.cards) == 2
 
@@ -238,7 +235,7 @@ class TestResolveEquipment:
         g.players[PID.RED].equipment.slot(eq1)
         g.players[PID.RED].action_field.top_distant.slot(eq2)
 
-        run(g, do(Resolve(PID.RED, eq2)), interp(0))
+        run(g, do(Resolve(PID.RED, eq2)), interp(CardOption(eq1)))
         assert eq2 in g.players[PID.RED].equipment.cards
         assert eq1 in g.players[PID.RED].discard.cards
 
@@ -347,18 +344,26 @@ class TestActionPlayConsent:
         g = minimal_game()
         e = enemy(3)
         g.players[PID.BLUE].action_field.top_distant.slot(e)
+        opp_slot = g.players[PID.BLUE].action_field.top_distant
 
-        # RED picks slot 0 (opponent top distant), BLUE allows (0), RED fights with fists (0)
-        run(g, _action_play(PID.RED), interp(0, 0, blue=[0]))
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_slot),
+            TextOption(f"Fists ({e.level} dmg)"),
+            blue=[TextOption("Allow")],
+        ))
         assert g.players[PID.RED].hp == 20 - DISTANCE_PENALTY - 3
 
     def test_opponent_hidden_requires_consent_no_penalty(self):
         g = minimal_game()
         e = enemy(3)
         g.players[PID.BLUE].action_field.top_hidden.slot(e)
+        opp_slot = g.players[PID.BLUE].action_field.top_hidden
 
-        # RED picks slot 0 (opponent top hidden), BLUE allows (0), RED fights with fists (0)
-        run(g, _action_play(PID.RED), interp(0, 0, blue=[0]))
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_slot),
+            TextOption(f"Fists ({e.level} dmg)"),
+            blue=[TextOption("Allow")],
+        ))
         assert g.players[PID.RED].hp == 20 - 3  # no distance penalty
 
     def test_consent_denied_forces_repick(self):
@@ -367,9 +372,15 @@ class TestActionPlayConsent:
         e2 = enemy(1)
         g.players[PID.BLUE].action_field.top_distant.slot(e1)
         g.players[PID.RED].action_field.top_distant.slot(e2)
+        opp_slot = g.players[PID.BLUE].action_field.top_distant
+        own_slot = g.players[PID.RED].action_field.top_distant
 
-        # RED picks opponent slot (idx 1), BLUE denies (1), RED re-picks own slot (idx 0), fists (0)
-        run(g, _action_play(PID.RED), interp(1, 0, 0, blue=[1]))
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_slot),
+            SlotOption(own_slot),
+            TextOption(f"Fists ({e2.level} dmg)"),
+            blue=[TextOption("Deny")],
+        ))
         assert g.players[PID.RED].hp == 20 - 1  # fought e2 with fists, no penalty
 
 
@@ -428,8 +439,7 @@ class TestOfferLastResort:
         e = enemy(3)
         g.players[PID.RED].action_field.top_distant.slot(e)
 
-        # Choice 0 = "None"
-        run(g, _offer_last_resort(PID.RED), interp(0))
+        run(g, _offer_last_resort(PID.RED), interp(TextOption("None")))
         # Nothing changed — card still on field
         assert e in g.players[PID.RED].action_field.top_distant.cards
 
@@ -446,8 +456,10 @@ class TestRunLastResort:
         for i in range(4):
             g.players[PID.RED].deck.slot(enemy(i + 1))
 
-        # BLUE keeps all 4 cards (choice 0 = Keep for each)
-        run(g, _run(PID.RED), interp(blue=[0, 0, 0, 0]))
+        run(g, _run(PID.RED), interp(blue=[
+            TextOption("Keep"), TextOption("Keep"),
+            TextOption("Keep"), TextOption("Keep"),
+        ]))
 
         # Old cards should be in refresh pile
         assert e1 in g.players[PID.RED].refresh.cards
@@ -465,8 +477,10 @@ class TestRunLastResort:
         for i in range(5):
             g.players[PID.RED].deck.slot(enemy(i + 1))
 
-        # BLUE recycles first card (1), keeps rest (0,0,0)
-        run(g, _run(PID.RED), interp(blue=[1, 0, 0, 0]))
+        run(g, _run(PID.RED), interp(blue=[
+            TextOption("Recycle"), TextOption("Keep"),
+            TextOption("Keep"), TextOption("Keep"),
+        ]))
 
         # 1 card recycled to refresh, 4 dealt to field
         assert len(g.players[PID.RED].refresh.cards) == 1
@@ -522,10 +536,20 @@ class TestActionPhaseIntegration:
             af.top_hidden.slot(food(1))
             af.bottom_hidden.slot(food(1))
 
-        # Each player picks slot 0 each time (no last resort choice first)
-        # RED: no last resort (0), slot 0, slot 0, slot 0
-        # BLUE: no last resort (0), slot 0, slot 0, slot 0
-        run(g, action_phase(), interp(0, 0, 0, 0, blue=[0, 0, 0, 0]))
+        red_af = g.players[PID.RED].action_field
+        blue_af = g.players[PID.BLUE].action_field
+        run(g, action_phase(), interp(
+            TextOption("None"),
+            SlotOption(red_af.top_distant),
+            SlotOption(red_af.top_hidden),
+            SlotOption(red_af.bottom_hidden),
+            blue=[
+                TextOption("None"),
+                SlotOption(blue_af.top_distant),
+                SlotOption(blue_af.top_hidden),
+                SlotOption(blue_af.bottom_hidden),
+            ],
+        ))
 
         # Each player's foods discarded
         for pid in PID:
@@ -547,8 +571,12 @@ class TestActionPhaseIntegration:
         g.players[PID.RED].action_field.top_hidden.slot(food(3))
         g.players[PID.BLUE].action_field.top_distant.slot(food(1))
 
-        # RED: no last resort (0), pick slot 0 (top distant), fists (0)
-        run(g, action_phase(), interp(0, 0, 0))
+        red_slot = g.players[PID.RED].action_field.top_distant
+        run(g, action_phase(), interp(
+            TextOption("None"),
+            SlotOption(red_slot),
+            TextOption(f"Fists ({e.level} dmg)"),
+        ))
         assert g.players[PID.RED].is_dead
 
     def test_elusive_refreshed_at_end(self):
@@ -571,8 +599,18 @@ class TestActionPhaseIntegration:
         bf.top_hidden.slot(food(1))
         bf.bottom_hidden.slot(food(1))
 
-        # No last resort for either; each resolves slots 0,1,2
-        run(g, action_phase(), interp(0, 0, 0, 0, blue=[0, 0, 0, 0]))
+        run(g, action_phase(), interp(
+            TextOption("None"),
+            SlotOption(af.top_distant),
+            SlotOption(af.top_hidden),
+            SlotOption(af.bottom_hidden),
+            blue=[
+                TextOption("None"),
+                SlotOption(bf.top_distant),
+                SlotOption(bf.top_hidden),
+                SlotOption(bf.bottom_hidden),
+            ],
+        ))
 
         # Elusive card should be refreshed (moved to RED's refresh pile)
         assert elusive in g.players[PID.RED].refresh.cards
@@ -589,9 +627,20 @@ class TestActionPhaseIntegration:
             af.top_hidden.slot(food(1))
             af.bottom_hidden.slot(food(1))
 
-        # Despite pre-setting to 0, both get 3 plays
-        # no-LR(0) + 3x slot(0) per player
-        run(g, action_phase(), interp(0, 0, 0, 0, blue=[0, 0, 0, 0]))
+        red_af = g.players[PID.RED].action_field
+        blue_af = g.players[PID.BLUE].action_field
+        run(g, action_phase(), interp(
+            TextOption("None"),
+            SlotOption(red_af.top_distant),
+            SlotOption(red_af.top_hidden),
+            SlotOption(red_af.bottom_hidden),
+            blue=[
+                TextOption("None"),
+                SlotOption(blue_af.top_distant),
+                SlotOption(blue_af.top_hidden),
+                SlotOption(blue_af.bottom_hidden),
+            ],
+        ))
         for pid in PID:
             assert g.players[pid].action_plays_left == 0
             assert g.players[pid].action_field.top_distant.is_empty()
@@ -612,8 +661,13 @@ class TestOfferLastResortRun:
         for i in range(4):
             g.players[PID.RED].deck.slot(enemy(i + 1))
 
-        # Choice 1 = "Run"; BLUE keeps all 4
-        run(g, _offer_last_resort(PID.RED), interp(1, blue=[0, 0, 0, 0]))
+        run(g, _offer_last_resort(PID.RED), interp(
+            TextOption("Run"),
+            blue=[
+                TextOption("Keep"), TextOption("Keep"),
+                TextOption("Keep"), TextOption("Keep"),
+            ],
+        ))
 
         # Original card refreshed
         assert e in g.players[PID.RED].refresh.cards
@@ -637,8 +691,7 @@ class TestOfferLastResortGuards:
         for _ in range(4):
             g.guard_deck.slot(guard(10))
 
-        # Options: ["None", "Run", "Call the Guards"]; choice 2 = Guards
-        run(g, _offer_last_resort(PID.RED), interp(2))
+        run(g, _offer_last_resort(PID.RED), interp(TextOption("Call the Guards")))
 
         assert rc in g.players[PID.RED].discard.cards
         for slot in g.players[PID.BLUE].action_field.slots_in_fill_order():
@@ -648,7 +701,7 @@ class TestOfferLastResortGuards:
         """Evil players don't get the Guards option even with a role card equipped.
 
         Kills and→or mutant: with or, an Evil player with a role card
-        would get Guards offered. Choice index 2 is valid only if Guards exists.
+        would get Guards offered.
         """
         g = minimal_game()
         rc = role_card(good=False)
@@ -656,9 +709,9 @@ class TestOfferLastResortGuards:
         g.players[PID.RED].alignment = Alignment.EVIL
         g.players[PID.RED].role = Role("???", Alignment.EVIL)
 
-        # Only ["None", "Run"] should exist — index 2 is out of bounds
-        with pytest.raises(IndexError):
-            run(g, _offer_last_resort(PID.RED), interp(2))
+        run(g, _offer_last_resort(PID.RED), interp(TextOption("None")))
+        for slot in g.players[PID.BLUE].action_field.slots_in_fill_order():
+            assert slot.is_empty()
 
     def test_good_player_without_role_card_cannot_call_guards(self):
         """Good player who lost their role card can't call guards."""
@@ -666,8 +719,7 @@ class TestOfferLastResortGuards:
         # No role card equipped
         g.players[PID.RED].alignment = Alignment.GOOD
 
-        # Only ["None", "Run"]; pick 0 (None)
-        run(g, _offer_last_resort(PID.RED), interp(0))
+        run(g, _offer_last_resort(PID.RED), interp(TextOption("None")))
         for slot in g.players[PID.BLUE].action_field.slots_in_fill_order():
             assert slot.is_empty()
 
@@ -753,7 +805,7 @@ class TestResolveTopOfDeck:
         g.players[PID.RED].deck.slot(e)
 
         from phase.action import _resolve_top_of_deck
-        run(g, _resolve_top_of_deck(PID.RED), interp(0))  # fists
+        run(g, _resolve_top_of_deck(PID.RED), interp(TextOption(f"Fists ({e.level} dmg)")))
 
         assert g.players[PID.RED].hp == 17
         assert e in g.players[PID.RED].discard.cards
@@ -795,11 +847,7 @@ class TestVoluntaryDiscard:
         slot.slot(food(3))
         g.players[PID.RED].hp = 10
 
-        # Voluntary discard: pick equipment(0), then Done(0 — now no items left)
-        # Actually after discarding, no more discardable items → auto-skip
-        # Then Resolve food (no prompt).
-        # Then post-resolution voluntary discard: nothing left → auto-skip.
-        run(g, _resolve_slot(PID.RED, slot), interp(0))
+        run(g, _resolve_slot(PID.RED, slot), interp(CardOption(eq)))
 
         assert eq in g.players[PID.RED].discard.cards
         assert g.players[PID.RED].hp == 13  # healed by food
@@ -813,8 +861,10 @@ class TestVoluntaryDiscard:
         slot = g.players[PID.RED].action_field.top_distant
         slot.slot(food(1))
 
-        # Pre-resolution: Done(1), then Resolve food, post-resolution: Done(1)
-        run(g, _resolve_slot(PID.RED, slot), interp(1, 1))
+        run(g, _resolve_slot(PID.RED, slot), interp(
+            TextOption("Done"),
+            TextOption("Done"),
+        ))
 
         assert eq in g.players[PID.RED].equipment.cards  # not discarded
 
@@ -829,8 +879,7 @@ class TestVoluntaryDiscard:
         slot = g.players[PID.RED].action_field.top_distant
         slot.slot(food(1))
 
-        # Voluntary discard: pick weapon(0), then Resolve food, post: nothing left
-        run(g, _resolve_slot(PID.RED, slot), interp(0))
+        run(g, _resolve_slot(PID.RED, slot), interp(CardOption(w)))
 
         assert w in g.players[PID.RED].discard.cards
         assert k in g.players[PID.RED].discard.cards
@@ -848,9 +897,7 @@ class TestVoluntaryDiscard:
         slot = g.players[PID.RED].action_field.top_distant
         slot.slot(food(1))
 
-        # Pre-resolution: discard first(0), then discard first again(0), then nothing left → auto-skip
-        # Resolve food, post-resolution: nothing left → auto-skip
-        run(g, _resolve_slot(PID.RED, slot), interp(0, 0))
+        run(g, _resolve_slot(PID.RED, slot), interp(CardOption(eq2), CardOption(eq1)))
 
         assert eq1 in g.players[PID.RED].discard.cards
         assert eq2 in g.players[PID.RED].discard.cards

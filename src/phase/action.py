@@ -71,15 +71,15 @@ def _offer_last_resort(pid: PID) -> Effect:
         if not (can_run or can_call_guards): return
 
         pb = (PromptBuilder("Last Resort?")  # pragma: no mutate
-              .add("None", None)  # pragma: no mutate
-              .add_if(can_run, "Run", "run")  # pragma: no mutate
-              .add_if(can_call_guards, "Call the Guards", "guards"))  # pragma: no mutate
+              .add(TextOption("None"))  # pragma: no mutate
+              .add_if(can_run, TextOption("Run"))  # pragma: no mutate
+              .add_if(can_call_guards, TextOption("Call the Guards")))  # pragma: no mutate
 
         response = yield pb.build(pid)  # pragma: no mutate
-        match pb.decode(response, pid):
-            case None: return
-            case "run": yield from _run(pid)(g)  # pragma: no mutate
-            case "guards": yield from _call_guards(pid)(g)  # pragma: no mutate
+        match response[pid]:
+            case TextOption("None"): return
+            case TextOption("Run"): yield from _run(pid)(g)  # pragma: no mutate
+            case TextOption("Call the Guards"): yield from _call_guards(pid)(g)  # pragma: no mutate
 
     return effect
 
@@ -115,10 +115,10 @@ def _run(pid: PID) -> Effect:
         # 3. Opponent may recycle each card
         for card in list(sidebar.cards):
             pb = (PromptBuilder(f"Recycle {card.display_name}?")  # pragma: no mutate
-                  .add("Keep", False)  # pragma: no mutate
-                  .add("Recycle", True))  # pragma: no mutate
+                  .add(TextOption("Keep"))  # pragma: no mutate
+                  .add(TextOption("Recycle")))  # pragma: no mutate
             response = yield pb.build(opp)  # pragma: no mutate
-            if pb.decode(response, opp):
+            if response[opp] == TextOption("Recycle"):
                 yield from do(Refresh(card, pid, "running recycle"))(g)  # pragma: no mutate
                 yield from do(EnsureDeck(pid, "running recycle"))(g)  # pragma: no mutate
                 if p.is_dead:
@@ -211,20 +211,22 @@ def _action_play(pid: PID) -> Effect:
 
         while True:
             pb = PromptBuilder("Resolve which slot?")  # pragma: no mutate
-            for i, (s, lbl, _, _, hid) in enumerate(choices):
-                pb.add(_slot_label(s, lbl, hid), i)  # pragma: no mutate
+            for s, _, _, _, _ in choices:
+                pb.add(SlotOption(s))  # pragma: no mutate
             response = yield pb.build(pid)  # pragma: no mutate
-            idx = pb.decode(response, pid)
-            slot, _, is_opp, is_dist, _ = choices[idx]
+            chosen = response[pid]
+            assert isinstance(chosen, SlotOption)
+            slot = chosen.slot
+            _, _, is_opp, is_dist, _ = next(c for c in choices if c[0] is slot)
 
             # Opponent slots require consent
             if is_opp:
                 opp_pid = other(pid)  # pragma: no mutate
                 cpb = (PromptBuilder("Allow opponent to resolve your slot?")  # pragma: no mutate
-                       .add("Allow", False)  # pragma: no mutate
-                       .add("Deny", True))  # pragma: no mutate
+                       .add(TextOption("Allow"))  # pragma: no mutate
+                       .add(TextOption("Deny")))  # pragma: no mutate
                 consent = yield cpb.build(opp_pid)  # pragma: no mutate
-                if cpb.decode(consent, opp_pid):
+                if consent[opp_pid] == TextOption("Deny"):
                     continue  # denied → re-pick
 
                 if is_dist:
@@ -236,14 +238,6 @@ def _action_play(pid: PID) -> Effect:
             return
 
     return effect
-
-
-def _slot_label(slot: Slot, prefix: str, hidden: bool = False) -> str:
-    if hidden:
-        n = len(slot.cards)  # pragma: no mutate
-        return f"{prefix}: [{n} card{'s' if n != 1 else ''}]"  # pragma: no mutate
-    card_names = ", ".join(c.display_name for c in slot.cards)  # pragma: no mutate
-    return f"{prefix}: [{card_names}]"  # pragma: no mutate
 
 
 # ── Resolution ────────────────────────────────────────────────
@@ -277,12 +271,16 @@ def _offer_voluntary_discard(pid: PID) -> Effect:
 
             pb = PromptBuilder("Voluntarily discard?")  # pragma: no mutate
             pb.add_cards(discardable)  # pragma: no mutate
-            pb.add("Done", None)  # pragma: no mutate
+            pb.add(TextOption("Done"))  # pragma: no mutate
             response = yield pb.build(pid)  # pragma: no mutate
-            card = pb.decode(response, pid)
 
-            if card is None:
-                return
+            match response[pid]:
+                case TextOption("Done"):
+                    return
+                case CardOption(card):
+                    pass
+                case _:
+                    return
             ws = weapon_slots.get(id(card))
             yield from do(Discard(pid, card, "voluntary discard"))(g)  # pragma: no mutate
             if ws is not None:

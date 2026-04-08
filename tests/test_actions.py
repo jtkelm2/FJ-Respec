@@ -54,7 +54,6 @@ class TestEnsureDeck:
     def test_shuffles_refresh_into_deck(self):
         g = create_initial_state(seed=42)
         p = g.players[PID.RED]
-        # Move all deck cards to refresh
         for c in list(p.deck.cards):
             p.refresh.slot(c)
         assert p.deck.is_empty()
@@ -216,8 +215,8 @@ class TestTransferHP:
         g.players[PID.BLUE].hp = 10
 
         run(g, do(TransferHP(PID.RED, PID.BLUE, 10, "test")), interp())
-        assert g.players[PID.RED].hp == 5   # floored
-        assert g.players[PID.BLUE].hp == 13  # healed by 3 (8-5), not 10
+        assert g.players[PID.RED].hp == 5
+        assert g.players[PID.BLUE].hp == 13
 
     def test_transfer_zero_damage_no_heal(self):
         """If floor prevents all damage, no healing occurs."""
@@ -253,8 +252,8 @@ class TestStealHP:
         g.players[PID.BLUE].hp_floor = 5
 
         run(g, do(StealHP(PID.RED, PID.BLUE, 10, "test")), interp())
-        assert g.players[PID.BLUE].hp == 5   # floored
-        assert g.players[PID.RED].hp == 13   # healed by 3 (8-5), not 10
+        assert g.players[PID.BLUE].hp == 5
+        assert g.players[PID.RED].hp == 13
 
     def test_steal_zero_damage_no_heal(self):
         g = create_initial_state(seed=42)

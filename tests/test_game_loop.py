@@ -5,7 +5,7 @@ Game loop: phase cycling, win conditions, world claims, StartPhase/EndPhase.
 import pytest
 from core.type import (
     PID, Alignment, Outcome, GameResult, GameOver, StartPhase, Phase,
-    WORLD_NAME, Card, CardType,
+    WORLD_NAME, Card, CardType, TextOption, CardOption, SlotOption,
 )
 from core.engine import do
 from interact.interpret import run
@@ -50,7 +50,6 @@ class TestStartPhaseAction:
         g.players[PID.RED].action_plays_left = 0
 
         run(g, do(StartPhase(Phase.REFRESH)), interp())
-        # Nothing changed — StartPhase is a pure hook point
         assert g.players[PID.RED].is_satiated is False
         assert g.players[PID.RED].first_play_done is True
         assert g.players[PID.RED].action_plays_left == 0
@@ -66,7 +65,6 @@ class TestPhaseResets:
         g = minimal_game()
         for pid in PID:
             g.players[pid].is_satiated = False
-            # Need cards for refresh to not exhaust
             for _ in range(10):
                 g.players[pid].deck.slot(food(1))
 
@@ -87,8 +85,17 @@ class TestPhaseResets:
             p.action_field.bottom_hidden.slot(food(1))
 
         from phase.action import action_phase
-        # no-LR(0), 3x slot(0) per player
-        run(g, action_phase(), interp(0, 0, 0, 0, blue=[0, 0, 0, 0]))
+        run(g, action_phase(), interp(
+            TextOption("None"),
+            SlotOption(g.players[PID.RED].action_field.top_distant),
+            SlotOption(g.players[PID.RED].action_field.top_hidden),
+            SlotOption(g.players[PID.RED].action_field.bottom_hidden),
+            blue=[
+                TextOption("None"),
+                SlotOption(g.players[PID.BLUE].action_field.top_distant),
+                SlotOption(g.players[PID.BLUE].action_field.top_hidden),
+                SlotOption(g.players[PID.BLUE].action_field.bottom_hidden),
+            ]))
         for pid in PID:
             assert g.players[pid].action_plays_left == 0
             assert g.players[pid].first_play_done is True
@@ -165,16 +172,13 @@ class TestCheckGameOver:
         g.players[PID.RED].alignment = Alignment.GOOD
         g.players[PID.BLUE].alignment = Alignment.GOOD
 
-        # 2 Worlds killed (in discard piles)
         g.players[PID.RED].discard.slot(_world_card())
         g.players[PID.BLUE].discard.slot(_world_card())
 
-        # Only one claims — game continues
         g.players[PID.RED].claims_world_killed = True
         g.players[PID.BLUE].claims_world_killed = False
         assert g.check_game_over() is None
 
-        # Both claim — mutual good win
         g.players[PID.BLUE].claims_world_killed = True
         result = g.check_game_over()
         assert result is not None
@@ -203,7 +207,6 @@ class TestCheckGameOver:
         g.players[PID.BLUE].alignment = Alignment.GOOD
         g.players[PID.RED].claims_world_killed = True
         g.players[PID.BLUE].claims_world_killed = True
-        # No worlds in discard/killstack
 
         result = g.check_game_over()
         assert result is not None
@@ -258,8 +261,7 @@ class TestOfferWorldClaims:
     def test_neither_claimed_asks_both(self):
         """When neither has claimed, AskBoth is used."""
         g = minimal_game()
-        # Both prompted simultaneously: RED=No(0), BLUE=Yes(1)
-        run(g, _offer_world_claims, interp(0, blue=[1]))
+        run(g, _offer_world_claims, interp(TextOption("No"), blue=[TextOption("Yes")]))
         assert g.players[PID.RED].claims_world_killed is False
         assert g.players[PID.BLUE].claims_world_killed is True
 
@@ -267,8 +269,7 @@ class TestOfferWorldClaims:
         """When one has claimed, only the other is prompted."""
         g = minimal_game()
         g.players[PID.RED].claims_world_killed = True
-        # BLUE gets AskEither: No(0)
-        run(g, _offer_world_claims, interp(blue=[0]))
+        run(g, _offer_world_claims, interp(blue=[TextOption("No")]))
         assert g.players[PID.RED].claims_world_killed is True
         assert g.players[PID.BLUE].claims_world_killed is False
 
@@ -276,8 +277,7 @@ class TestOfferWorldClaims:
         """When one has claimed and the other says Yes, the claim is set."""
         g = minimal_game()
         g.players[PID.RED].claims_world_killed = True
-        # BLUE gets prompted: Yes(1)
-        run(g, _offer_world_claims, interp(blue=[1]))
+        run(g, _offer_world_claims, interp(blue=[TextOption("Yes")]))
         assert g.players[PID.BLUE].claims_world_killed is True
 
     def test_both_already_claimed_no_prompt(self):
@@ -323,12 +323,20 @@ class TestGameLoopIntegration:
             for _ in range(10):
                 g.players[pid].deck.slot(food(1))
 
-        g.players[PID.RED].action_field.top_distant.slot(enemy(20))
+        e = enemy(20)
+        g.players[PID.RED].action_field.top_distant.slot(e)
 
-        # Refresh: auto. Manip: both dump. Action: RED picks enemy, dies.
-        # World claims not reached (death exits first).
-        red_choices = [1, 0, 0, 0, 0, 0, 0, 0]
-        blue_choices = [1, 0, 0, 0, 0]
+        red_choices = [
+            TextOption("Dump"),
+            TextOption("Discard"), TextOption("Discard"), TextOption("Discard"), TextOption("Discard"),
+            TextOption("None"),
+            SlotOption(g.players[PID.RED].action_field.top_distant),
+            TextOption("Fists (20 dmg)"),
+        ]
+        blue_choices = [
+            TextOption("Dump"),
+            TextOption("Discard"), TextOption("Discard"), TextOption("Discard"), TextOption("Discard"),
+        ]
 
         run(g, game_loop(), interp(*red_choices, blue=blue_choices))
         assert g.is_over
@@ -354,16 +362,27 @@ class TestGameLoopIntegration:
             for _ in range(10):
                 g.players[pid].deck.slot(food(1))
 
-        # Pre-kill both Worlds
         g.players[PID.RED].discard.slot(_world_card())
         g.players[PID.BLUE].discard.slot(_world_card())
 
-        # Refresh: auto.
-        # Manip: dump(1) + 4x discard(0) = 5 each.
-        # Action: no-LR(0) + 3x slot(0) = 4 each.
-        # World claims (AskBoth): Yes(1) each.
-        red_choices = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-        blue_choices = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        red_choices = [
+            TextOption("Dump"),
+            TextOption("Discard"), TextOption("Discard"), TextOption("Discard"), TextOption("Discard"),
+            TextOption("None"),
+            SlotOption(g.players[PID.RED].action_field.top_distant),
+            SlotOption(g.players[PID.RED].action_field.top_hidden),
+            SlotOption(g.players[PID.RED].action_field.bottom_hidden),
+            TextOption("Yes"),
+        ]
+        blue_choices = [
+            TextOption("Dump"),
+            TextOption("Discard"), TextOption("Discard"), TextOption("Discard"), TextOption("Discard"),
+            TextOption("None"),
+            SlotOption(g.players[PID.BLUE].action_field.top_distant),
+            SlotOption(g.players[PID.BLUE].action_field.top_hidden),
+            SlotOption(g.players[PID.BLUE].action_field.bottom_hidden),
+            TextOption("Yes"),
+        ]
 
         run(g, game_loop(), interp(*red_choices, blue=blue_choices))
         assert g.is_over

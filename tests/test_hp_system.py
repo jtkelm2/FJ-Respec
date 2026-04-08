@@ -18,12 +18,12 @@ from phase.setup import create_initial_state
 class TestDamageBoundaries:
 
     @pytest.mark.parametrize("amount,expected_hp,expected_dead", [
-        (0,   20,   False),  # zero damage: no-op
-        (1,   19,   False),  # minimal
-        (19,  1,    False),  # one HP remaining
-        (20,  0,    True),   # exact lethal
-        (21,  -1,   True),   # overkill by 1
-        (999, -979, True),   # massive overkill
+        (0,   20,   False),
+        (1,   19,   False),
+        (19,  1,    False),
+        (20,  0,    True),
+        (21,  -1,   True),
+        (999, -979, True),
     ])
     def test_damage_at_boundary(self, amount, expected_hp, expected_dead):
         g = create_initial_state(seed=42)
@@ -38,10 +38,10 @@ class TestDamageBoundaries:
 class TestHealBoundaries:
 
     @pytest.mark.parametrize("damage_first,heal,expected_hp", [
-        (10, 0,  10),   # zero heal
-        (10, 1,  11),   # minimal heal
-        (10, 10, 20),   # exact restore to starting HP
-        (10, 15, 25),   # overheal past starting HP (no default ceiling)
+        (10, 0,  10),
+        (10, 1,  11),
+        (10, 10, 20),
+        (10, 15, 25),
     ])
     def test_heal_at_boundary(self, damage_first, heal, expected_hp):
         g = create_initial_state(seed=42)
@@ -101,9 +101,9 @@ class TestHPComposition:
 
     def test_damage_heal_damage_kills(self):
         g = create_initial_state(seed=42)
-        run(g, do(Damage(PID.RED, 15, "test")), interp())   # 20 -> 5
-        run(g, do(Heal(PID.RED, 10, "test")), interp())     # 5 -> 15
-        run(g, do(Damage(PID.RED, 15, "test")), interp())   # 15 -> 0
+        run(g, do(Damage(PID.RED, 15, "test")), interp())
+        run(g, do(Heal(PID.RED, 10, "test")), interp())
+        run(g, do(Damage(PID.RED, 15, "test")), interp())
         assert g.players[PID.RED].hp == 0
         assert g.players[PID.RED].is_dead
 
@@ -115,7 +115,7 @@ class TestHPComposition:
 
         run(g, do(Heal(PID.RED, 10, "test")), interp())
         assert g.players[PID.RED].hp == 10
-        assert g.players[PID.RED].is_dead  # still dead
+        assert g.players[PID.RED].is_dead
 
     def test_players_have_independent_hp(self):
         g = create_initial_state(seed=42)

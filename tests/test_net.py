@@ -11,7 +11,7 @@ from dataclasses import asdict
 from core.type import (
     PID, PKind, PromptHalf, PlayerView, CardView, CardType,
     GameResult, Outcome, Ask, AskBoth, AskEither,
-    compute_player_view,
+    compute_player_view, TextOption,
 )
 from interact.player import ScriptedInterpreter, _serialize_view, _GameEncoder
 from interact.interpret import AsyncAggregateInterpreter
@@ -49,7 +49,6 @@ class TestSerialization:
         view = compute_player_view(g, PID.RED)
         serialized = _serialize_view(view)
 
-        # Must be a plain dict (no dataclass instances, no enums)
         raw = json.dumps(serialized)
         recovered = json.loads(raw)
         assert recovered == serialized
@@ -94,87 +93,82 @@ class TestAsyncAggregateInterpreter:
 
     def test_ask_single_player(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([1])
+        red = RecordingPlayer([TextOption("B")])
         blue = RecordingPlayer([])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
-        prompt = Ask(PID.RED, "Pick one", ["A", "B"])
+        prompt = Ask(PID.RED, "Pick one", [TextOption("A"), TextOption("B")])
         response = interp.interpret(prompt)
 
-        assert response == {PID.RED: 1}
+        assert response == {PID.RED: TextOption("B")}
 
     def test_ask_both(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([0])
-        blue = RecordingPlayer([1])
+        red = RecordingPlayer([TextOption("X")])
+        blue = RecordingPlayer([TextOption("Y")])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         prompt = AskBoth({
-            PID.RED: PromptHalf("Red?", ["X", "Y"]),
-            PID.BLUE: PromptHalf("Blue?", ["X", "Y"]),
+            PID.RED: PromptHalf("Red?", [TextOption("X"), TextOption("Y")]),
+            PID.BLUE: PromptHalf("Blue?", [TextOption("X"), TextOption("Y")]),
         })
         response = interp.interpret(prompt)
 
-        assert response[PID.RED] == 0
-        assert response[PID.BLUE] == 1
+        assert response[PID.RED] == TextOption("X")
+        assert response[PID.BLUE] == TextOption("Y")
 
     def test_ask_either_multi(self):
         """AskEither with two players returns whichever responds first."""
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([0])
-        blue = RecordingPlayer([1])
+        red = RecordingPlayer([TextOption("A")])
+        blue = RecordingPlayer([TextOption("C")])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         prompt = AskEither({
-            PID.RED: PromptHalf("Red?", ["A"]),
-            PID.BLUE: PromptHalf("Blue?", ["B", "C"]),
+            PID.RED: PromptHalf("Red?", [TextOption("A")]),
+            PID.BLUE: PromptHalf("Blue?", [TextOption("B"), TextOption("C")]),
         })
         response = interp.interpret(prompt)
 
-        # Exactly one player answered
         assert len(response) == 1
         pid = next(iter(response))
         assert pid in (PID.RED, PID.BLUE)
 
     def test_state_pushed_on_first_interpret(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([0])
+        red = RecordingPlayer([TextOption("ok")])
         blue = RecordingPlayer([])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
-        interp.interpret(Ask(PID.RED, "?", ["ok"]))
+        interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        # Both players should have received a state push
         assert len(red.states) == 1
         assert len(blue.states) == 1
 
     def test_no_push_when_view_unchanged(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([0, 0])
+        red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
         blue = RecordingPlayer([])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
-        interp.interpret(Ask(PID.RED, "?", ["ok"]))
-        interp.interpret(Ask(PID.RED, "?", ["ok"]))
+        interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
+        interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        # Second call: game state didn't change, so no second push
         assert len(red.states) == 1
         assert len(blue.states) == 1
 
     def test_push_after_state_change(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([0, 0])
+        red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
         blue = RecordingPlayer([])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
-        interp.interpret(Ask(PID.RED, "?", ["ok"]))
+        interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        # Mutate game state
         g.players[PID.RED].hp -= 5
 
-        interp.interpret(Ask(PID.RED, "?", ["ok"]))
+        interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        # Red's view changed (hp), so red gets a second push
         assert len(red.states) == 2
         assert red.states[0].hp != red.states[1].hp
 
@@ -188,9 +182,7 @@ class TestPlayerViewFogOfWar:
         g.players[PID.BLUE].hp = 7
         view = compute_player_view(g, PID.RED)
 
-        # Own HP visible
         assert view.hp == g.players[PID.RED].hp
-        # No opponent HP field that reveals the value
         assert not hasattr(view, "opp_hp") or view.opp_hp is None
 
     def test_own_hand_visible(self):
@@ -207,5 +199,4 @@ class TestPlayerViewFogOfWar:
         view = compute_player_view(g, PID.RED)
 
         assert view.opp_action_field_top_hidden_count == 1
-        # Distant slots are card views, not counts
         assert isinstance(view.opp_action_field_top_distant, list)

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from random import Random
-from typing import Any, Callable, Generator
+from typing import Callable, Generator
 from enum import Enum, auto
 
 class CardType(Enum):
@@ -32,84 +32,7 @@ def other(pid:PID) -> PID:
   match pid:
     case PID.RED:  return PID.BLUE
     case PID.BLUE: return PID.RED
-
-@dataclass
-class PromptHalf:
-  """A question for one player."""
-  text: str
-  options: list[str]
-
-class PKind(Enum):
-  BOTH = auto()
-  EITHER = auto()
-
-@dataclass
-class Prompt:
-  for_player: dict[PID,PromptHalf]
-  kind: PKind
-
-def Ask(player:PID, text: str, options: list[str]) -> Prompt:
-  return Prompt({player: PromptHalf(text, options)}, PKind.EITHER)  # pragma: no mutate
-
-def AskBoth(asks: dict[PID,PromptHalf]) -> Prompt:
-  return Prompt(asks, PKind.BOTH)  # pragma: no mutate
-
-def AskEither(asks: dict[PID,PromptHalf]) -> Prompt:
-  return Prompt(asks, PKind.EITHER)
-
-Response = dict[PID,int]
-
-class PromptBuilder:
-  """Accumulates (label, tag) pairs, builds a Prompt, and decodes a Response back into its tag."""
-
-  def __init__(self, text: str):
-    self._text = text
-    self._options: list[tuple[str, Any]] = []
-
-  def add(self, label: str, tag: Any):
-    self._options.append((label, tag))
-    return self
-
-  def add_card(self, card: Card, str:str | None = None):
-    self._options.append((str or card.display_name, card))
-    return self
-
-  def add_cards(self, cards: list[Card], label_fn: Callable[[Card], str] | None = None):
-    for card in cards:
-      self.add_card(card, label_fn(card) if label_fn else None)
-    return self
-  
-  # def add_slot_cards(self, slot: "Slot"):
-  #   return self.add_cards(slot.cards)
-
-  def add_if(self, cond: bool, label: str, tag: Any):
-    if cond:
-      self._options.append((label, tag))
-    return self
-
-  def _half(self) -> PromptHalf:
-    return PromptHalf(self._text, [label for label, _ in self._options])  # pragma: no mutate
-
-  def build(self, pid: PID) -> Prompt:
-    return Ask(pid, self._text, [label for label, _ in self._options])  # pragma: no mutate
-
-  def decode(self, response: Response, pid: PID) -> Any:
-    return self._options[response[pid]][1]  # pragma: no mutate
-
-  @staticmethod
-  def both(*builders: "PromptBuilder") -> Prompt:
-    if len(builders) == 1:
-      half = builders[0]._half()
-      return AskBoth({pid: half for pid in PID})  # pragma: no mutate
-    return AskBoth({PID.RED: builders[0]._half(), PID.BLUE: builders[1]._half()})  # pragma: no mutate
-
-  @staticmethod
-  def either(*builders: "PromptBuilder") -> Prompt:
-    if len(builders) == 1:
-      half = builders[0]._half()
-      return AskEither({pid: half for pid in PID})  # pragma: no mutate
-    return AskEither({PID.RED: builders[0]._half(), PID.BLUE: builders[1]._half()})  # pragma: no mutate
-
+     
 class Slot:
   _cards: list[Card]
 
@@ -172,6 +95,115 @@ class WeaponSlot:
     assert isinstance(self.weapon.level, int)
     if not self.killstack.cards: return self.weapon.level
     return min(self.weapon.level, self.killstack.cards[0].level or 0)  # pragma: no mutate
+  
+  def can_fight(self, lvl:int) -> bool:
+    if self.weapon is None: return False 
+    if self.killstack.is_empty(): return True
+    last_enemy_killed = self.killstack.cards[0]
+    assert last_enemy_killed.level is not None
+    return last_enemy_killed.level >= lvl
+
+
+############# Options ########
+
+class Option:
+  """Base for typed prompt options."""
+  pass
+
+@dataclass
+class TextOption(Option):
+  text: str
+  def __str__(self): return self.text  # pragma: no mutate
+
+@dataclass
+class CardOption(Option):
+  card: Card
+  def __str__(self): return self.card.display_name  # pragma: no mutate
+
+@dataclass
+class SlotOption(Option):
+  slot: Slot
+  def __str__(self):  # pragma: no mutate
+    if self.slot.is_empty(): return "[empty]"  # pragma: no mutate
+    return ", ".join(c.display_name for c in self.slot.cards)  # pragma: no mutate
+
+@dataclass
+class WeaponSlotOption(Option):
+  weapon_slot: WeaponSlot
+  def __str__(self):  # pragma: no mutate
+    w = self.weapon_slot.weapon  # pragma: no mutate
+    if w is None: return "Empty"  # pragma: no mutate
+    return f"{w.display_name} (sharpness {self.weapon_slot.sharpness()})"  # pragma: no mutate
+
+
+############# Prompt ########
+
+@dataclass
+class PromptHalf:
+  """A question for one player."""
+  text: str
+  options: list[Option]
+
+class PKind(Enum):
+  BOTH = auto()
+  EITHER = auto()
+
+@dataclass
+class Prompt:
+  for_player: dict[PID,PromptHalf]
+  kind: PKind
+
+def Ask(player:PID, text: str, options: list[Option]) -> Prompt:
+  return Prompt({player: PromptHalf(text, options)}, PKind.EITHER)  # pragma: no mutate
+
+def AskBoth(asks: dict[PID,PromptHalf]) -> Prompt:
+  return Prompt(asks, PKind.BOTH)  # pragma: no mutate
+
+def AskEither(asks: dict[PID,PromptHalf]) -> Prompt:
+  return Prompt(asks, PKind.EITHER)
+
+Response = dict[PID, Option]
+
+class PromptBuilder:
+  """Accumulates typed Options, builds a Prompt."""
+
+  def __init__(self, text: str):
+    self._text = text
+    self._options: list[Option] = []
+
+  def add(self, option: Option):
+    self._options.append(option)
+    return self
+
+  def add_cards(self, cards: "list[Card]"):
+    for card in cards:
+      self._options.append(CardOption(card))
+    return self
+
+  def add_if(self, cond: bool, option: Option):
+    if cond:
+      self._options.append(option)
+    return self
+
+  def _half(self) -> PromptHalf:
+    return PromptHalf(self._text, list(self._options))  # pragma: no mutate
+
+  def build(self, pid: PID) -> Prompt:
+    return Prompt({pid: self._half()}, PKind.EITHER)  # pragma: no mutate
+
+  @staticmethod
+  def both(*builders: "PromptBuilder") -> Prompt:
+    if len(builders) == 1:
+      half = builders[0]._half()
+      return AskBoth({pid: half for pid in PID})  # pragma: no mutate
+    return AskBoth({PID.RED: builders[0]._half(), PID.BLUE: builders[1]._half()})  # pragma: no mutate
+
+  @staticmethod
+  def either(*builders: "PromptBuilder") -> Prompt:
+    if len(builders) == 1:
+      half = builders[0]._half()
+      return AskEither({pid: half for pid in PID})  # pragma: no mutate
+    return AskEither({PID.RED: builders[0]._half(), PID.BLUE: builders[1]._half()})  # pragma: no mutate
 
 class Alignment(Enum):
   GOOD = auto()
@@ -186,7 +218,6 @@ class DefaultRole(Role):
   def __init__(self,good=True):  # pragma: no mutate
     self.name = "Human" if good else "???"  # pragma: no mutate
     self.alignment = Alignment.GOOD if good else Alignment.EVIL  # pragma: no mutate
-
 
 @dataclass
 class ActionField:
