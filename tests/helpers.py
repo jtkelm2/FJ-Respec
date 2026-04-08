@@ -6,7 +6,7 @@ from core.type import (
 )
 from core.engine import do
 from interact.interpret import run, AggregateInterpreter
-from interact.player import ScriptedInterpreter
+from interact.player import ScriptedPlayer
 
 
 def interp(*red_choices, blue=None):
@@ -14,8 +14,8 @@ def interp(*red_choices, blue=None):
     if blue is None:
         blue = []
     return AggregateInterpreter(
-        ScriptedInterpreter(list(red_choices)),
-        ScriptedInterpreter(list(blue)),
+        ScriptedPlayer(list(red_choices)),
+        ScriptedPlayer(list(blue)),
     )
 
 

@@ -12,7 +12,7 @@ from core.type import (
     GameResult, Outcome, Ask, AskBoth, AskEither,
     compute_player_view, TextOption,
 )
-from interact.player import ScriptedInterpreter
+from interact.player import ScriptedPlayer
 from interact.interpret import AsyncAggregateInterpreter
 from interact.serial import Accumulator
 from phase.setup import create_initial_state
@@ -20,8 +20,8 @@ from phase.setup import create_initial_state
 
 # ── Helpers ───────────────────────────────────────────────────
 
-class RecordingPlayer(ScriptedInterpreter):
-    """ScriptedInterpreter that also records push_state calls."""
+class RecordingPlayer(ScriptedPlayer):
+    """ScriptedPlayer that also records push_state calls."""
     def __init__(self, script):
         super().__init__(list(script))
         self.states: list[PlayerView] = []

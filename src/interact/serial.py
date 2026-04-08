@@ -13,6 +13,8 @@ from core.type import (
 )
 
 type UID = int
+type ClientOption = dict
+type ClientPlayerView = dict
 
 
 class Serializer:

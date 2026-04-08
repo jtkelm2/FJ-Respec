@@ -32,30 +32,8 @@ class Player:
     pass
 
 
-class CLIInterpreter(Player):
-  player_name: str
-
-  def __init__(self,player_name:str | None = None):
-    self.player_name = player_name or input("Your name? ")
-
-  def push_state(self, view: PlayerView) -> None:
-    pass
-
-  def request(self, prompt_half: PromptHalf) -> Option:
-    print(f"\n[{self.player_name}] {prompt_half.text}")
-    for i, opt in enumerate(prompt_half.options):
-      print(f"  {i}: {opt}")
-    return prompt_half.options[int(input("  > "))]
-
-  def notify(self, text: str) -> None:
-    print(text)
-
-  def close(self) -> None:
-    pass
-
-
 @dataclass
-class ScriptedInterpreter(Player):
+class ScriptedPlayer(Player):
   script: list[Option]
 
   def push_state(self, view: PlayerView) -> None:
@@ -105,18 +83,23 @@ class TCPPlayer(Player):
         _send(self._sock, {"type": "state", "view": view_data})
 
     def request(self, prompt_half: PromptHalf) -> Option:
+        assert self._serializer is not None
+        serialized_options = [self._serializer.option(o) for o in prompt_half.options]
         log.info("[%s] request: %r  options=%s",
-                 self._label, prompt_half.text, prompt_half.options)
+                 self._label, prompt_half.text, serialized_options)
         _send(self._sock, {
             "type": "prompt",
             "text": prompt_half.text,
-            "options": [str(o) for o in prompt_half.options],
+            "options": serialized_options,
         })
         msg = _recv(self._sock)
-        choice = msg["choice"]
-        log.info("[%s] response: %d (%s)",
-                 self._label, choice, prompt_half.options[choice] if choice < len(prompt_half.options) else "?")
-        return prompt_half.options[choice]
+        chosen = msg["option"]
+        # Find the engine Option that matches the returned serialized option
+        for opt, ser_opt in zip(prompt_half.options, serialized_options):
+            if ser_opt == chosen:
+                log.info("[%s] response: %s", self._label, chosen)
+                return opt
+        raise ValueError(f"Client returned unknown option: {chosen}")
 
     def notify(self, text: str) -> None:
         log.info("[%s] notify: %s", self._label, text)

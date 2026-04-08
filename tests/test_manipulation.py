@@ -257,12 +257,12 @@ class TestManipulationPhaseIntegration:
                 slot.slot(food(90 + i))
 
         from phase.manipulation import manipulation_phase
-        from interact.player import ScriptedInterpreter
+        from interact.player import ScriptedPlayer
         from interact.interpret import AggregateInterpreter
 
         equip = red.equipment.cards[0]
-        red_script = ScriptedInterpreter([TextOption("Manipulate"), TextOption("Done"), CardOption(equip), CardOption(mf1)])
-        blue_script = ScriptedInterpreter([TextOption("Dump")])
+        red_script = ScriptedPlayer([TextOption("Manipulate"), TextOption("Done"), CardOption(equip), CardOption(mf1)])
+        blue_script = ScriptedPlayer([TextOption("Dump")])
         run(g, manipulation_phase(),
             AggregateInterpreter(red_script, blue_script))
 

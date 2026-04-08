@@ -2,14 +2,12 @@
 Client-side: GameClient contract, CLIGameClient, TCP transport.
 """
 
-import json
 import logging
 import socket
 from abc import abstractmethod
 
-from core.type import Card, PlayerView
 from interact.player import _recv, _send
-from interact.serial import Deserializer
+from interact.serial import ClientOption, ClientPlayerView
 
 log = logging.getLogger("client")
 
@@ -20,14 +18,18 @@ class GameClient:
   """Client-side contract. Frontends implement this."""
 
   @abstractmethod
-  def on_state(self, view: PlayerView) -> None:
-    """Render updated visible game state.
-    Game result is part of PlayerView — detect game over here."""
+  def on_catalog(self, catalog: list[dict]) -> None:
+    """Receive the card catalog at session start."""
     pass
 
   @abstractmethod
-  def on_prompt(self, text: str, options: list[str]) -> int:
-    """Display a prompt and return the chosen option index."""
+  def on_state(self, view: ClientPlayerView) -> None:
+    """Render updated visible game state."""
+    pass
+
+  @abstractmethod
+  def on_prompt(self, text: str, options: list[ClientOption]) -> ClientOption:
+    """Display a prompt and return the chosen option."""
     pass
 
   @abstractmethod
@@ -38,89 +40,108 @@ class GameClient:
 
 # ── CLIGameClient ─────────────────────────────────────────────
 
-def _card_names(cards: list[Card]) -> str:
-    return ", ".join(c.display_name for c in cards)
-
 class CLIGameClient(GameClient):
     """Terminal-based game client."""
 
-    def on_state(self, view: PlayerView) -> None:
+    def __init__(self):
+        self._cards: dict[int, dict] = {}
+
+    def on_catalog(self, catalog: list[dict]) -> None:
+        for entry in catalog:
+            self._cards[entry["uid"]] = entry
+
+    def _card_name(self, uid: int) -> str:
+        entry = self._cards.get(uid)
+        return entry["display_name"] if entry else f"uid:{uid}"  # pragma: no mutate
+
+    def _card_names(self, uids: list[int]) -> str:
+        return ", ".join(self._card_name(u) for u in uids)  # pragma: no mutate
+
+    def _option_label(self, opt: ClientOption) -> str:
+        match opt["type"]:
+            case "text": return opt["text"]  # pragma: no mutate
+            case "card": return self._card_name(opt["uid"])  # pragma: no mutate
+            case "slot": return f"slot:{opt['uid']}"  # pragma: no mutate
+            case "weapon_slot": return f"weapon:{opt['uid']}"  # pragma: no mutate
+            case _: return str(opt)  # pragma: no mutate
+
+    def on_state(self, view: ClientPlayerView) -> None:
         log.debug("on_state: hp=%s hand=%d deck=%d",
-                  view.hp, len(view.hand), view.deck_size)
+                  view["hp"], len(view["hand"]), view["deck_size"])
 
-        print("\n--- Game State ---")
-        print(f"  HP: {view.hp}")
+        print("\n--- Game State ---")  # pragma: no mutate
+        print(f"  HP: {view['hp']}")  # pragma: no mutate
 
-        if view.hand:
-            print(f"  Hand: [{_card_names(view.hand)}]")
+        if view["hand"]:
+            print(f"  Hand: [{self._card_names(view['hand'])}]")  # pragma: no mutate
 
-        if view.equipment:
-            print(f"  Equipment: [{_card_names(view.equipment)}]")
+        if view["equipment"]:
+            print(f"  Equipment: [{self._card_names(view['equipment'])}]")  # pragma: no mutate
 
-        for i, (weapon, sharpness, kills) in enumerate(view.weapons):
-            if weapon is not None:
-                print(f"  Weapon {i}: {weapon.display_name} (sharpness {sharpness}, {kills} kills)")
+        for i, (weapon_uid, sharpness, kills) in enumerate(view["weapons"]):
+            if weapon_uid is not None:
+                print(f"  Weapon {i}: {self._card_name(weapon_uid)} (sharpness {sharpness}, {kills} kills)")  # pragma: no mutate
             else:
-                print(f"  Weapon {i}: Empty")
+                print(f"  Weapon {i}: Empty")  # pragma: no mutate
 
-        print(f"  Deck: {view.deck_size}  Refresh: {view.refresh_size}  Discard: {view.discard_size}")
+        print(f"  Deck: {view['deck_size']}  Refresh: {view['refresh_size']}  Discard: {view['discard_size']}")  # pragma: no mutate
 
-        if view.sidebar:
-            print(f"  Sidebar: [{_card_names(view.sidebar)}]")
+        if view["sidebar"]:
+            print(f"  Sidebar: [{self._card_names(view['sidebar'])}]")  # pragma: no mutate
 
-        for label, cards in [
-            ("Top Distant", view.action_field_top_distant),
-            ("Top Hidden", view.action_field_top_hidden),
-            ("Bottom Hidden", view.action_field_bottom_hidden),
-            ("Bottom Distant", view.action_field_bottom_distant),
+        for label, key in [
+            ("Top Distant", "action_field_top_distant"),
+            ("Top Hidden", "action_field_top_hidden"),
+            ("Bottom Hidden", "action_field_bottom_hidden"),
+            ("Bottom Distant", "action_field_bottom_distant"),
         ]:
-            if cards:
-                print(f"  {label}: [{_card_names(cards)}]")
+            if view[key]:
+                print(f"  {label}: [{self._card_names(view[key])}]")  # pragma: no mutate
 
-        print(f"  Opponent: {view.opp_equipment_count} equipment, "
-              f"deck {view.opp_deck_size}, refresh {view.opp_refresh_size}, "
-              f"discard {view.opp_discard_size}")
+        print(f"  Opponent: {view['opp_equipment_count']} equipment, "  # pragma: no mutate
+              f"deck {view['opp_deck_size']}, refresh {view['opp_refresh_size']}, "
+              f"discard {view['opp_discard_size']}")
 
-        for label, cards in [
-            ("Opp Top Distant", view.opp_action_field_top_distant),
-            ("Opp Bottom Distant", view.opp_action_field_bottom_distant),
+        for label, key in [
+            ("Opp Top Distant", "opp_action_field_top_distant"),
+            ("Opp Bottom Distant", "opp_action_field_bottom_distant"),
         ]:
-            if cards:
-                print(f"  {label}: [{_card_names(cards)}]")
+            if view[key]:
+                print(f"  {label}: [{self._card_names(view[key])}]")  # pragma: no mutate
 
-        hidden_top = view.opp_action_field_top_hidden_count
-        hidden_bot = view.opp_action_field_bottom_hidden_count
+        hidden_top = view["opp_action_field_top_hidden_count"]
+        hidden_bot = view["opp_action_field_bottom_hidden_count"]
         if hidden_top or hidden_bot:
-            print(f"  Opp Hidden: top={hidden_top}, bottom={hidden_bot}")
+            print(f"  Opp Hidden: top={hidden_top}, bottom={hidden_bot}")  # pragma: no mutate
 
-        print(f"  Priority: {view.priority}")
-        print(f"  Guard deck: {view.guard_deck_size}")
+        print(f"  Priority: {view['priority']}")  # pragma: no mutate
+        print(f"  Guard deck: {view['guard_deck_size']}")  # pragma: no mutate
 
-        if view.game_result is not None:
-            r = view.game_result
-            print(f"\n  *** GAME OVER: {r.outcome} ***")
-            if r.winners:
-                print(f"  Winners: {r.winners}")
-        print("------------------")
+        gr = view["game_result"]
+        if gr is not None:
+            print(f"\n  *** GAME OVER: {gr['outcome']} ***")  # pragma: no mutate
+            if gr["winners"]:
+                print(f"  Winners: {gr['winners']}")  # pragma: no mutate
+        print("------------------")  # pragma: no mutate
 
-    def on_prompt(self, text: str, options: list[str]) -> int:
+    def on_prompt(self, text: str, options: list[ClientOption]) -> ClientOption:
         log.info("on_prompt: %r  options=%s", text, options)
-        print(f"\n{text}")
+        print(f"\n{text}")  # pragma: no mutate
         for i, opt in enumerate(options):
-            print(f"  {i}: {opt}")
+            print(f"  {i}: {self._option_label(opt)}")  # pragma: no mutate
         while True:
             try:
                 choice = int(input("  > "))
                 if 0 <= choice < len(options):
-                    log.info("on_prompt response: %d (%s)", choice, options[choice])
-                    return choice
-                print(f"  Choose 0-{len(options)-1}")
+                    log.info("on_prompt response: %d", choice)
+                    return options[choice]
+                print(f"  Choose 0-{len(options)-1}")  # pragma: no mutate
             except ValueError:
-                print("  Enter a number")
+                print("  Enter a number")  # pragma: no mutate
 
     def on_notify(self, text: str) -> None:
         log.info("on_notify: %s", text)
-        print(f"\n[!] {text}")
+        print(f"\n[!] {text}")  # pragma: no mutate
 
 
 # ── TCP transport + main loop ─────────────────────────────────
@@ -131,8 +152,6 @@ def run_client(host: str, port: int, client: GameClient):
     log.info("Connected to %s:%d", host, port)
     print(f"Connected to {host}:{port}")
 
-    deserializer: Deserializer | None = None
-
     try:
         while True:
             msg = _recv(sock)
@@ -140,14 +159,12 @@ def run_client(host: str, port: int, client: GameClient):
 
             match msg["type"]:
                 case "catalog":
-                    deserializer = Deserializer.from_catalog(msg["cards"])
+                    client.on_catalog(msg["cards"])
                 case "state":
-                    assert deserializer is not None
-                    client.on_state(deserializer.player_view(msg["view"]))
+                    client.on_state(msg["view"])
                 case "prompt":
-                    choice = client.on_prompt(msg["text"], msg["options"])
-                    _send(sock, {"type": "response", "choice": choice})
-                    log.debug("sent response: choice=%d", choice)
+                    chosen = client.on_prompt(msg["text"], msg["options"])
+                    _send(sock, {"type": "response", "option": chosen})
                 case "notify":
                     client.on_notify(msg["text"])
                 case "close":
