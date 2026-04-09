@@ -115,19 +115,20 @@ class TCPConnection(Connection):
 
   def __init__(self, sock: socket):
     self._sock = sock
+    self._buf = b""
 
   def send(self, msg: dict) -> None:
     data = json.dumps(msg) + "\n"
     self._sock.sendall(data.encode())
 
   def recv(self) -> dict:
-    buf = b""
-    while b"\n" not in buf:
+    while b"\n" not in self._buf:
       chunk = self._sock.recv(4096)
       if not chunk:
         raise ConnectionError("connection closed")
-      buf += chunk
-    return json.loads(buf.split(b"\n", 1)[0])
+      self._buf += chunk
+    line, self._buf = self._buf.split(b"\n", 1)
+    return json.loads(line)
 
   def close(self) -> None:
     self._sock.close()
