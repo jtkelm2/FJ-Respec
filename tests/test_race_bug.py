@@ -1,8 +1,8 @@
 """
 Tests for AsyncAggregateInterpreter's EITHER race handling.
 
-Uses a QueuePlayer backed by a Connection that allows controlled timing
-to verify no duplicate prompts are sent.
+Uses a QueuePlayer that gates receive_option on a queue, allowing
+controlled timing to verify no duplicate prompts are sent.
 """
 
 import logging
@@ -12,29 +12,38 @@ from queue import Queue
 
 from core.type import PID, PromptHalf, PlayerView, Ask, TextOption, Option
 from core.engine import simultaneously
-from interact.player import RemotePlayer, Connection
-from interact.serial import Accumulator
+from interact.player import Player, OOB
 from interact.interpret import run, AsyncAggregateInterpreter
 from phase.setup import create_initial_state
 
 log = logging.getLogger("race_test")
 
 
-class QueueConnection(Connection):
-    """Connection where messages flow through queues for controlled timing."""
+class QueuePlayer(Player):
+    """Player where prompts and answers flow through queues."""
     def __init__(self, label: str):
         self.label = label
-        self.outbox: Queue[dict] = Queue()
-        self.inbox: Queue[dict] = Queue()
+        self.prompts_received: Queue[PromptHalf] = Queue()
+        self.answers: Queue[Option] = Queue()
+        self.states: list[PlayerView] = []
+        self._never = threading.Event()
 
-    def send(self, msg: dict) -> None:
-        log.info("[%s] conn.send: %s", self.label, msg.get("type", "?"))
-        self.outbox.put(msg)
+    def push_state(self, view: PlayerView) -> None:
+        self.states.append(view)
 
-    def recv(self) -> dict:
-        msg = self.inbox.get()
-        log.info("[%s] conn.recv: %s", self.label, msg.get("type", "?"))
-        return msg
+    def prompt(self, prompt_half: PromptHalf) -> Option:
+        log.info("[%s] prompt: %r", self.label, prompt_half.text)
+        self.prompts_received.put(prompt_half)
+        answer = self.answers.get()
+        log.info("[%s] answer: %s", self.label, answer)
+        return answer
+
+    def receive_oob(self) -> OOB:
+        self._never.wait()
+        raise RuntimeError("unreachable")
+
+    def notify(self, text: str) -> None:
+        pass
 
     def close(self) -> None:
         pass
@@ -58,18 +67,13 @@ def _setup_log():
 
 
 def test_no_duplicate_prompts_in_either_race():
-    """When one player wins a race, the loser's outstanding request
+    """When one player wins a race, the loser's outstanding prompt
     is reused on the next interpret() call — not duplicated."""
     _setup_log()
 
     g = create_initial_state(seed=42)
-    acc = Accumulator(g)
-    ser = acc.serializer()
-
-    red_conn = QueueConnection("RED")
-    blue_conn = QueueConnection("BLUE")
-    red = RemotePlayer(red_conn, ser, "RED")
-    blue = RemotePlayer(blue_conn, ser, "BLUE")
+    red = QueuePlayer("RED")
+    blue = QueuePlayer("BLUE")
     interp = AsyncAggregateInterpreter(g, red, blue)
 
     def simple_effect(pid):
@@ -82,40 +86,23 @@ def test_no_duplicate_prompts_in_either_race():
     engine_thread = threading.Thread(target=run, args=(g, effect, interp), name="engine")
     engine_thread.start()
 
-    # Wait for both players to receive prompts (drain state pushes + prompts)
-    def _wait_for_prompt(conn: QueueConnection) -> None:
-        while True:
-            msg = conn.outbox.get(timeout=2)
-            if msg["type"] == "prompt":
-                return
+    red.prompts_received.get(timeout=2)
+    blue.prompts_received.get(timeout=2)
 
-    _wait_for_prompt(red_conn)
-    _wait_for_prompt(blue_conn)
-
-    # BLUE answers first
-    blue_conn.inbox.put({"type": "response", "option": {"type": "text", "text": "A"}})
+    blue.answers.put(TextOption("A"))
     time.sleep(0.1)
 
-    # RED should NOT have received a duplicate prompt
-    prompt_count = 0
-    while not red_conn.outbox.empty():
-        msg = red_conn.outbox.get_nowait()
-        if msg["type"] == "prompt":
-            prompt_count += 1
-    assert prompt_count == 0, "RED received a duplicate prompt"
+    assert red.prompts_received.empty(), "RED received a duplicate prompt"
 
-    # RED answers late
-    red_conn.inbox.put({"type": "response", "option": {"type": "text", "text": "A"}})
+    red.answers.put(TextOption("A"))
     time.sleep(0.1)
 
-    # Drain remaining prompts and answer them
     for _ in range(10):
         time.sleep(0.05)
-        for conn in [red_conn, blue_conn]:
-            while not conn.outbox.empty():
-                msg = conn.outbox.get_nowait()
-                if msg["type"] == "prompt":
-                    conn.inbox.put({"type": "response", "option": {"type": "text", "text": "X"}})
+        for player in [red, blue]:
+            while not player.prompts_received.empty():
+                player.prompts_received.get_nowait()
+                player.answers.put(TextOption("X"))
 
     engine_thread.join(timeout=3)
     assert not engine_thread.is_alive()

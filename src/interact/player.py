@@ -1,25 +1,56 @@
-import json
-import logging
-import socket
 from abc import abstractmethod
+from dataclasses import dataclass
+import json
+from logging import getLogger
+from queue import Queue
+from socket import socket
+from threading import Event, Thread
 
 from core.type import Option, PlayerView, PromptHalf
 from interact.serial import Serializer, ClientOption
 
-log = logging.getLogger("server")
+log = getLogger("server")
+
+
+# ── OOB types ────────────────────────────────────────────────
+
+@dataclass
+class Resigned:
+    pass
+
+@dataclass
+class DrawOffered:
+    pass
+
+@dataclass
+class DrawAccepted:
+    pass
+
+@dataclass
+class Disconnect:
+    pass
+
+OOB = Resigned | DrawOffered | DrawAccepted | Disconnect
 
 
 # ── Player contract ──────────────────────────────────────────
 
 class Player:
+  """Abstract player."""
+
   @abstractmethod
   def push_state(self, view: PlayerView) -> None:
     """Push updated visible state. Non-blocking."""
     pass
 
   @abstractmethod
-  def request(self, prompt_half: PromptHalf) -> Option:
+  def prompt(self, prompt_half: PromptHalf) -> Option:
     """Send a prompt and block until the player responds with a chosen Option."""
+    pass
+
+  @abstractmethod
+  def receive_oob(self) -> OOB:
+    """Block until an out-of-band event arrives (resignation, draw offer, etc.)."""
     pass
 
   @abstractmethod
@@ -39,13 +70,18 @@ class ScriptedPlayer(Player):
   """Test double: pops Options from a pre-built script."""
 
   def __init__(self, script: list[Option]):
-    self.script = script
+    self.script: list[Option] = list(script)
+    self._never = Event()
 
   def push_state(self, view: PlayerView) -> None:
     pass
 
-  def request(self, prompt_half: PromptHalf) -> Option:
+  def prompt(self, prompt_half: PromptHalf) -> Option:
     return self.script.pop(0)
+
+  def receive_oob(self) -> OOB:
+    self._never.wait()
+    raise RuntimeError("unreachable")  # pragma: no mutate
 
   def notify(self, text: str) -> None:
     pass
@@ -57,7 +93,7 @@ class ScriptedPlayer(Player):
 # ── Connection contract ──────────────────────────────────────
 
 class Connection:
-  """Abstract wire connection. Used by RemotePlayer and AsyncAggregateInterpreter."""
+  """Abstract wire connection used by RemotePlayer."""
 
   @abstractmethod
   def send(self, msg: dict) -> None:
@@ -77,7 +113,7 @@ class Connection:
 class TCPConnection(Connection):
   """Connection backed by a TCP socket with line-delimited JSON."""
 
-  def __init__(self, sock: socket.socket):
+  def __init__(self, sock: socket):
     self._sock = sock
 
   def send(self, msg: dict) -> None:
@@ -100,61 +136,75 @@ class TCPConnection(Connection):
 # ── RemotePlayer ─────────────────────────────────────────────
 
 class RemotePlayer(Player):
-    """Player backed by a Connection and Serializer."""
+  """Player backed by a Connection and Serializer.
 
-    def __init__(self, conn: Connection, serializer: Serializer, label: str = "?"):
-        self._conn = conn
-        self._serializer = serializer
-        self._label = label
-        self._last_options: list[Option] = []
+  An internal listener thread reads messages from the connection
+  and dispatches them to either _option_queue or _oob_queue based
+  on message type."""
 
-    @property
-    def conn(self) -> Connection:
-        return self._conn
+  def __init__(self, conn: Connection, serializer: Serializer, label: str = "?"):
+    self._conn = conn
+    self._serializer = serializer
+    self._label = label
+    self._last_options: list[Option] = []
+    self._option_queue: Queue[Option] = Queue()
+    self._oob_queue: Queue[OOB] = Queue()
+    self._listener = Thread(target=self._listen, daemon=True, name=f"recv-{label}")
+    self._listener.start()
 
-    def push_state(self, view: PlayerView) -> None:
-        log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d)",
-                  self._label, view.hp, len(view.hand), view.deck_size)
-        self._conn.send({"type": "state", "view": self._serializer.player_view(view)})
+  def _listen(self) -> None:
+    try:
+      while True:
+        msg = self._conn.recv()
+        match msg.get("type"):
+          case "response":
+            self._option_queue.put(self._resolve_option(msg["option"]))
+          case "resign":
+            self._oob_queue.put(Resigned())
+          case "draw_offer":
+            self._oob_queue.put(DrawOffered())
+          case "draw_accept":
+            self._oob_queue.put(DrawAccepted())
+          case _:
+            log.warning("[%s] unknown message type: %s", self._label, msg.get("type"))
+    except (ConnectionError, OSError):
+      log.info("[%s] connection closed", self._label)
+      self._oob_queue.put(Disconnect())
 
-    def request(self, prompt_half: PromptHalf) -> Option:
-        self._last_options = list(prompt_half.options)
-        serialized_options = [self._serializer.option(o) for o in prompt_half.options]
-        log.info("[%s] request: %r  options=%s",
-                 self._label, prompt_half.text, serialized_options)
-        self._conn.send({
-            "type": "prompt",
-            "text": prompt_half.text,
-            "options": serialized_options,
-        })
-        # Block for response, handling OOB messages inline
-        while True:
-            msg = self._conn.recv()
-            match msg["type"]:
-                case "response":
-                    chosen = msg["option"]
-                    log.info("[%s] response: %s", self._label, chosen)
-                    return self._resolve_option(chosen)
-                case "resign":
-                    log.info("[%s] resign (during request)", self._label)
-                    # TODO: handle via game termination
-                case "draw":
-                    log.info("[%s] offer_draw (during request)", self._label)
-                    # TODO: forward to other player
-                case _:
-                    raise ValueError(f"Unknown message type: {msg['type']}")
+  def push_state(self, view: PlayerView) -> None:
+    log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d)",
+              self._label, view.hp, len(view.hand), view.deck_size)
+    self._conn.send({"type": "state", "view": self._serializer.player_view(view)})
 
-    def notify(self, text: str) -> None:
-        log.info("[%s] notify: %s", self._label, text)
-        self._conn.send({"type": "notify", "text": text})
+  def prompt(self, prompt_half: PromptHalf) -> Option:
+    self._last_options = list(prompt_half.options)
+    serialized_options = [self._serializer.option(o) for o in prompt_half.options]
+    log.info("[%s] prompt: %r  options=%s",
+             self._label, prompt_half.text, serialized_options)
+    self._conn.send({
+      "type": "prompt",
+      "text": prompt_half.text,
+      "options": serialized_options,
+    })
+    return self._option_queue.get()
 
-    def close(self) -> None:
-        log.info("[%s] close", self._label)
-        self._conn.send({"type": "close"})
-        self._conn.close()
+  def receive_oob(self) -> OOB:
+    return self._oob_queue.get()
 
-    def _resolve_option(self, serialized: ClientOption) -> Option:
-        for opt in self._last_options:
-            if self._serializer.option(opt) == serialized:
-                return opt
-        raise ValueError(f"Client returned unknown option: {serialized}")
+  def notify(self, text: str) -> None:
+    log.info("[%s] notify: %s", self._label, text)
+    self._conn.send({"type": "notify", "text": text})
+
+  def close(self) -> None:
+    log.info("[%s] close", self._label)
+    try:
+      self._conn.send({"type": "close"})
+    except (ConnectionError, OSError):
+      pass
+    self._conn.close()
+
+  def _resolve_option(self, serialized: ClientOption) -> Option:
+    for opt in self._last_options:
+      if self._serializer.option(opt) == serialized:
+        return opt
+    raise ValueError(f"Unknown option: {serialized}")

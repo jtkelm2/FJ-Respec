@@ -2,9 +2,9 @@
 Server-side: GameServer contract, TCPGameServer.
 """
 
-import logging
-import socket
 from abc import abstractmethod
+from logging import DEBUG, FileHandler, Formatter, getLogger
+from socket import AF_INET, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket
 
 from core.type import PID, GameResult
 from interact.player import RemotePlayer, TCPConnection
@@ -13,7 +13,7 @@ from interact.serial import Accumulator
 from phase.game import game_loop
 from phase.setup import create_initial_state
 
-log = logging.getLogger("server")
+log = getLogger("server")
 
 
 class GameServer:
@@ -35,11 +35,11 @@ class TCPGameServer(GameServer):
     def __init__(self, host: str = "0.0.0.0", port: int = 9000):
         self._host = host
         self._port = port
-        self._server_sock: socket.socket | None = None
+        self._server_sock: socket | None = None
 
-    def _await_sockets(self) -> tuple[socket.socket, socket.socket]:
-        self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    def _await_sockets(self) -> tuple[socket, socket]:
+        self._server_sock = socket(AF_INET, SOCK_STREAM)
+        self._server_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self._server_sock.bind((self._host, self._port))
         self._server_sock.listen(2)
         log.info("Listening on %s:%d ...", self._host, self._port)
@@ -92,12 +92,12 @@ def _setup_logging():
     os.makedirs("logs/server", exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"logs/server/{ts}.log"
-    handler = logging.FileHandler(filename, mode="w")
-    handler.setFormatter(logging.Formatter(
+    handler = FileHandler(filename, mode="w")
+    handler.setFormatter(Formatter(
         "%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"
     ))
     log.addHandler(handler)
-    log.setLevel(logging.DEBUG)
+    log.setLevel(DEBUG)
 
 
 if __name__ == "__main__":

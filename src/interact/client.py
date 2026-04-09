@@ -2,14 +2,14 @@
 Client-side: GameClient contract, CLIGameClient, TCP transport.
 """
 
-import logging
-import socket
 from abc import abstractmethod
+from logging import DEBUG, FileHandler, Formatter, getLogger
+from socket import AF_INET, SOCK_STREAM, socket
 
 from interact.player import TCPConnection
 from interact.serial import ClientOption, ClientPlayerView
 
-log = logging.getLogger("client")
+log = getLogger("client")
 
 
 # ── GameClient contract ───────────────────────────────────────
@@ -147,7 +147,7 @@ class CLIGameClient(GameClient):
 # ── TCP transport + main loop ─────────────────────────────────
 
 def run_client(host: str, port: int, client: GameClient):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock = socket(AF_INET, SOCK_STREAM)
     sock.connect((host, port))
     log.info("Connected to %s:%d", host, port)
     print(f"Connected to {host}:{port}")
@@ -186,12 +186,12 @@ def _setup_logging():
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     pid = os.getpid()
     filename = f"logs/client/{ts}_{pid}.log"
-    handler = logging.FileHandler(filename, mode="w")
-    handler.setFormatter(logging.Formatter(
+    handler = FileHandler(filename, mode="w")
+    handler.setFormatter(Formatter(
         "%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"
     ))
     log.addHandler(handler)
-    log.setLevel(logging.DEBUG)
+    log.setLevel(DEBUG)
 
 
 if __name__ == "__main__":
