@@ -7,8 +7,8 @@ from logging import DEBUG, FileHandler, Formatter, getLogger
 from socket import AF_INET, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket
 
 from core.type import PID, GameResult
-from interact.player import RemotePlayer, TCPConnection
-from interact.interpret import run, AsyncAggregateInterpreter
+from interact.player import Player, RemotePlayer, TCPConnection
+from interact.interpret import run, AsyncAggregateInterpreter, ViewPushingInterpreter
 from interact.serial import Accumulator
 from phase.game import game_loop
 from phase.setup import create_initial_state
@@ -70,13 +70,14 @@ class TCPGameServer(GameServer):
         red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
         blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")
 
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
+        interp = ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))
         run(g, game_loop(), interp)
 
         # Push final state (includes game_result) then close
         for pid in PID:
             interp.push_if_changed(pid)
-            interp._players[pid].close()
+            players[pid].close()
 
         assert g.game_result is not None
         return g.game_result

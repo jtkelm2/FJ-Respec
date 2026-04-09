@@ -13,7 +13,7 @@ from queue import Queue
 from core.type import PID, PromptHalf, PlayerView, Ask, TextOption, Option
 from core.engine import simultaneously
 from interact.player import Player, OOB
-from interact.interpret import run, AsyncAggregateInterpreter
+from interact.interpret import run, AsyncAggregateInterpreter, ViewPushingInterpreter
 from phase.setup import create_initial_state
 
 log = logging.getLogger("race_test")
@@ -74,7 +74,8 @@ def test_no_duplicate_prompts_in_either_race():
     g = create_initial_state(seed=42)
     red = QueuePlayer("RED")
     blue = QueuePlayer("BLUE")
-    interp = AsyncAggregateInterpreter(g, red, blue)
+    players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
+    interp = ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))
 
     def simple_effect(pid):
         def eff(g):

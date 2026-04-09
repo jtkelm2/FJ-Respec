@@ -12,10 +12,15 @@ from core.type import (
     GameResult, Outcome, Ask, AskBoth, AskEither,
     compute_player_view, TextOption,
 )
-from interact.player import ScriptedPlayer
-from interact.interpret import AsyncAggregateInterpreter
+from interact.player import ScriptedPlayer, Player
+from interact.interpret import AsyncAggregateInterpreter, ViewPushingInterpreter
 from interact.serial import Accumulator
 from phase.setup import create_initial_state
+
+
+def _make_interp(g, red, blue):
+    players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
+    return ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -104,7 +109,7 @@ class TestAsyncAggregateInterpreter:
         g = create_initial_state(seed=42)
         red = RecordingPlayer([TextOption("B")])
         blue = RecordingPlayer([])
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        interp = _make_interp(g, red, blue)
 
         prompt = Ask(PID.RED, "Pick one", [TextOption("A"), TextOption("B")])
         response = interp.interpret(prompt)
@@ -115,7 +120,7 @@ class TestAsyncAggregateInterpreter:
         g = create_initial_state(seed=42)
         red = RecordingPlayer([TextOption("X")])
         blue = RecordingPlayer([TextOption("Y")])
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        interp = _make_interp(g, red, blue)
 
         prompt = AskBoth({
             PID.RED: PromptHalf("Red?", [TextOption("X"), TextOption("Y")]),
@@ -131,7 +136,7 @@ class TestAsyncAggregateInterpreter:
         g = create_initial_state(seed=42)
         red = RecordingPlayer([TextOption("A")])
         blue = RecordingPlayer([TextOption("C")])
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        interp = _make_interp(g, red, blue)
 
         prompt = AskEither({
             PID.RED: PromptHalf("Red?", [TextOption("A")]),
@@ -147,7 +152,7 @@ class TestAsyncAggregateInterpreter:
         g = create_initial_state(seed=42)
         red = RecordingPlayer([TextOption("ok")])
         blue = RecordingPlayer([])
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        interp = _make_interp(g, red, blue)
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
@@ -158,7 +163,7 @@ class TestAsyncAggregateInterpreter:
         g = create_initial_state(seed=42)
         red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
         blue = RecordingPlayer([])
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        interp = _make_interp(g, red, blue)
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
@@ -170,7 +175,7 @@ class TestAsyncAggregateInterpreter:
         g = create_initial_state(seed=42)
         red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
         blue = RecordingPlayer([])
-        interp = AsyncAggregateInterpreter(g, red, blue)
+        interp = _make_interp(g, red, blue)
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 

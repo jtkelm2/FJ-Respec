@@ -51,6 +51,35 @@ class AggregateInterpreter(Interpreter):
         return {pid: self._route(pid).prompt(half)}
 
 
+class ViewPushingInterpreter(Interpreter):
+    """Wraps an inner Interpreter and pushes per-player view diffs.
+
+    Before each interpret() call, pushes the current PlayerView to any
+    player whose view has changed since the last push. This responsibility
+    is split out from AsyncAggregateInterpreter so the latter can focus
+    on prompt routing alone."""
+
+    def __init__(self, g: GameState, players: dict[PID, Player], inner: Interpreter):
+        self._g = g
+        self._players = players
+        self._inner = inner
+        self._last_view: dict[PID, PlayerView] = {}
+
+    def push_if_changed(self, pid: PID) -> None:
+        view = compute_player_view(self._g, pid)
+        if self._last_view.get(pid) != view:
+            log.debug("ViewPushingInterpreter: %s view changed, pushing", pid.name)
+            self._players[pid].push_state(view)
+            self._last_view[pid] = view
+        else:
+            log.debug("ViewPushingInterpreter: %s view unchanged, skipping", pid.name)
+
+    def interpret(self, prompt: Prompt) -> Response:
+        for pid in PID:
+            self.push_if_changed(pid)
+        return self._inner.interpret(prompt)
+
+
 class AsyncAggregateInterpreter(Interpreter):
     """Composes two Players into an Interpreter via per-prompt worker threads.
 
@@ -60,28 +89,14 @@ class AsyncAggregateInterpreter(Interpreter):
     race keeps their thread alive, so no duplicate prompt is sent.
     """
 
-    def __init__(self, g: GameState, red: Player, blue: Player):
-        self._g = g
+    def __init__(self, red: Player, blue: Player):
         self._players = {PID.RED: red, PID.BLUE: blue}
-        self._last_view: dict[PID, PlayerView] = {}
         self._inbox: Queue[tuple[PID, Option]] = Queue()
         self._outstanding: set[PID] = set()
-
-    def push_if_changed(self, pid: PID) -> None:
-        view = compute_player_view(self._g, pid)
-        if pid not in self._last_view or view != self._last_view[pid]:
-            log.debug("push_if_changed: %s view changed, pushing", pid.name)
-            self._players[pid].push_state(view)
-            self._last_view[pid] = view
-        else:
-            log.debug("push_if_changed: %s view unchanged, skipping", pid.name)
 
     def interpret(self, prompt: Prompt) -> Response:
         players_in_prompt = [pid.name for pid in prompt.for_player]
         log.info("interpret: kind=%s players=%s", prompt.kind.name, players_in_prompt)
-
-        for pid in PID:
-            self.push_if_changed(pid)
 
         match prompt.kind:
             case PKind.BOTH:
