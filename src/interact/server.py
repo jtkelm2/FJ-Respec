@@ -7,7 +7,7 @@ import socket
 from abc import abstractmethod
 
 from core.type import PID, GameResult
-from interact.player import Player, TCPPlayer, _send
+from interact.player import RemotePlayer, TCPConnection
 from interact.interpret import run, AsyncAggregateInterpreter
 from interact.serial import Accumulator
 from phase.game import game_loop
@@ -58,11 +58,14 @@ class TCPGameServer(GameServer):
         acc = Accumulator(g)
         serializer = acc.serializer()
         catalog_msg = {"type": "catalog", "cards": acc.catalog()}
-        _send(red_sock, catalog_msg)
-        _send(blue_sock, catalog_msg)
 
-        red = TCPPlayer(red_sock, "RED", serializer)
-        blue = TCPPlayer(blue_sock, "BLUE", serializer)
+        red_conn = TCPConnection(red_sock)
+        blue_conn = TCPConnection(blue_sock)
+        red_conn.send(catalog_msg)
+        blue_conn.send(catalog_msg)
+
+        red = RemotePlayer(red_conn, serializer, "RED")
+        blue = RemotePlayer(blue_conn, serializer, "BLUE")
 
         red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
         blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")

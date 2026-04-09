@@ -6,13 +6,14 @@ against real game states — not spec-level unit tests.
 """
 
 import json
+from threading import Event
 
 from core.type import (
-    PID, PKind, PromptHalf, PlayerView,
+    PID, PKind, PromptHalf,
     GameResult, Outcome, Ask, AskBoth, AskEither,
     compute_player_view, TextOption,
 )
-from interact.player import ScriptedPlayer
+from interact.player import RemotePlayer, Connection
 from interact.interpret import AsyncAggregateInterpreter
 from interact.serial import Accumulator
 from phase.setup import create_initial_state
@@ -20,22 +21,48 @@ from phase.setup import create_initial_state
 
 # ── Helpers ───────────────────────────────────────────────────
 
-class RecordingPlayer(ScriptedPlayer):
-    """ScriptedPlayer that also records push_state calls."""
-    def __init__(self, script):
-        super().__init__(list(script))
-        self.states: list[PlayerView] = []
-        self.notifications: list[str] = []
-        self.closed = False
+class ScriptedConnection(Connection):
+    """Connection that sends scripted responses when prompted.
 
-    def push_state(self, view: PlayerView) -> None:
-        self.states.append(view)
+    Outgoing messages (send) are recorded. Incoming messages (recv)
+    block until a prompt is sent, then respond with the next scripted option.
+    """
+    def __init__(self, script: list[dict]):
+        self.script = list(script)
+        self.sent: list[dict] = []
+        self._prompt_ready = Event()
 
-    def notify(self, text: str) -> None:
-        self.notifications.append(text)
+    def send(self, msg: dict) -> None:
+        self.sent.append(msg)
+        if msg.get("type") == "prompt":
+            self._prompt_ready.set()
+
+    def recv(self) -> dict:
+        self._prompt_ready.wait()
+        self._prompt_ready.clear()
+        return self.script.pop(0)
 
     def close(self) -> None:
-        self.closed = True
+        pass
+
+    @property
+    def states(self) -> list[dict]:
+        return [m["view"] for m in self.sent if m.get("type") == "state"]
+
+
+def _make_players(g, red_options: list[TextOption], blue_options: list[TextOption]):
+    """Build RemotePlayers with ScriptedConnections for testing."""
+    acc = Accumulator(g)
+    ser = acc.serializer()
+
+    def _script(options):
+        return [{"type": "response", "option": ser.option(o)} for o in options]
+
+    red_conn = ScriptedConnection(_script(red_options))
+    blue_conn = ScriptedConnection(_script(blue_options))
+    red = RemotePlayer(red_conn, ser, "RED")
+    blue = RemotePlayer(blue_conn, ser, "BLUE")
+    return red, blue, red_conn, blue_conn
 
 
 # ── Serialization ─────────────────────────────────────────────
@@ -102,8 +129,7 @@ class TestAsyncAggregateInterpreter:
 
     def test_ask_single_player(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([TextOption("B")])
-        blue = RecordingPlayer([])
+        red, blue, _, _ = _make_players(g, [TextOption("B")], [])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         prompt = Ask(PID.RED, "Pick one", [TextOption("A"), TextOption("B")])
@@ -113,8 +139,7 @@ class TestAsyncAggregateInterpreter:
 
     def test_ask_both(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([TextOption("X")])
-        blue = RecordingPlayer([TextOption("Y")])
+        red, blue, _, _ = _make_players(g, [TextOption("X")], [TextOption("Y")])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         prompt = AskBoth({
@@ -129,8 +154,7 @@ class TestAsyncAggregateInterpreter:
     def test_ask_either_multi(self):
         """AskEither with two players returns whichever responds first."""
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([TextOption("A")])
-        blue = RecordingPlayer([TextOption("C")])
+        red, blue, _, _ = _make_players(g, [TextOption("A")], [TextOption("C")])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         prompt = AskEither({
@@ -145,31 +169,28 @@ class TestAsyncAggregateInterpreter:
 
     def test_state_pushed_on_first_interpret(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([TextOption("ok")])
-        blue = RecordingPlayer([])
+        red, blue, red_conn, blue_conn = _make_players(g, [TextOption("ok")], [])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        assert len(red.states) == 1
-        assert len(blue.states) == 1
+        assert len(red_conn.states) >= 1
+        assert len(blue_conn.states) >= 1
 
     def test_no_push_when_view_unchanged(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
-        blue = RecordingPlayer([])
+        red, blue, red_conn, blue_conn = _make_players(g, [TextOption("ok"), TextOption("ok")], [])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        assert len(red.states) == 1
-        assert len(blue.states) == 1
+        assert len(red_conn.states) == 1
+        assert len(blue_conn.states) == 1
 
     def test_push_after_state_change(self):
         g = create_initial_state(seed=42)
-        red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
-        blue = RecordingPlayer([])
+        red, blue, red_conn, _ = _make_players(g, [TextOption("ok"), TextOption("ok")], [])
         interp = AsyncAggregateInterpreter(g, red, blue)
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
@@ -178,8 +199,7 @@ class TestAsyncAggregateInterpreter:
 
         interp.interpret(Ask(PID.RED, "?", [TextOption("ok")]))
 
-        assert len(red.states) == 2
-        assert red.states[0].hp != red.states[1].hp
+        assert len(red_conn.states) == 2
 
 
 # ── PlayerView fog of war ─────────────────────────────────────

@@ -6,7 +6,7 @@ import logging
 import socket
 from abc import abstractmethod
 
-from interact.player import _recv, _send
+from interact.player import TCPConnection
 from interact.serial import ClientOption, ClientPlayerView
 
 log = logging.getLogger("client")
@@ -152,9 +152,11 @@ def run_client(host: str, port: int, client: GameClient):
     log.info("Connected to %s:%d", host, port)
     print(f"Connected to {host}:{port}")
 
+    conn = TCPConnection(sock)
+
     try:
         while True:
-            msg = _recv(sock)
+            msg = conn.recv()
             log.debug("recv: type=%s", msg["type"])
 
             match msg["type"]:
@@ -164,7 +166,7 @@ def run_client(host: str, port: int, client: GameClient):
                     client.on_state(msg["view"])
                 case "prompt":
                     chosen = client.on_prompt(msg["text"], msg["options"])
-                    _send(sock, {"type": "response", "option": chosen})
+                    conn.send({"type": "response", "option": chosen})
                 case "notify":
                     client.on_notify(msg["text"])
                 case "close":
@@ -175,7 +177,7 @@ def run_client(host: str, port: int, client: GameClient):
         log.warning("Disconnected from server")
         print("\nDisconnected from server.")
     finally:
-        sock.close()
+        conn.close()
 
 
 def _setup_logging():
