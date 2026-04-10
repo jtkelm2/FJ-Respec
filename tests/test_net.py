@@ -10,7 +10,7 @@ import json
 from core.type import (
     PID, PromptHalf, PlayerView,
     GameResult, Outcome, Ask, AskBoth, AskEither,
-    compute_player_view, TextOption,
+    compute_player_view, TextOption, CardOption,
 )
 from interact.player import ScriptedPlayer, Player
 from interact.interpret import AsyncAggregateInterpreter, ViewPushingInterpreter
@@ -53,7 +53,7 @@ class TestSerialization:
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
-        serialized = ser.player_view(view)
+        serialized = ser.player_view(view, PID.RED)
 
         raw = json.dumps(serialized)
         recovered = json.loads(raw)
@@ -64,11 +64,10 @@ class TestSerialization:
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
-        serialized = ser.player_view(view)
+        serialized = ser.player_view(view, PID.RED)
 
         assert isinstance(serialized["priority"], str)
         assert serialized["priority"] in ("RED", "BLUE")
-        assert all(isinstance(uid, int) for uid in serialized["hand"])
 
     def test_game_result_serializes(self):
         g = create_initial_state(seed=42)
@@ -76,29 +75,115 @@ class TestSerialization:
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
-        serialized = ser.player_view(view)
+        serialized = ser.player_view(view, PID.RED)
 
         assert serialized["game_result"] is not None
         assert serialized["game_result"]["outcome"] == "GOOD_KILLED_EVIL"
         assert "RED" in serialized["game_result"]["winners"]
 
-    def test_round_trip(self):
-        """serialize then deserialize produces an equal PlayerView."""
+    def test_slots_keyed_by_name(self):
+        """State slots dict is keyed by slot names."""
         g = create_initial_state(seed=42)
         acc = Accumulator(g)
         ser = acc.serializer()
-        deser = acc.deserializer()
         view = compute_player_view(g, PID.RED)
-        assert deser.player_view(ser.player_view(view)) == view
+        serialized = ser.player_view(view, PID.RED)
 
-    def test_round_trip_with_game_result(self):
+        assert isinstance(serialized["slots"], dict)
+        assert "red_hand" in serialized["slots"]
+        assert "blue_deck" in serialized["slots"]
+        assert "guard_deck" in serialized["slots"]
+
+    def test_card_names_reference_catalog(self):
+        """Every card name in a state view appears in the catalog."""
         g = create_initial_state(seed=42)
-        g.game_result = GameResult((PID.RED,), Outcome.GOOD_KILLED_EVIL)
         acc = Accumulator(g)
         ser = acc.serializer()
-        deser = acc.deserializer()
+        catalog = acc.catalog(PID.RED)
         view = compute_player_view(g, PID.RED)
-        assert deser.player_view(ser.player_view(view)) == view
+        serialized = ser.player_view(view, PID.RED)
+
+        catalog_names = set(catalog["cards"].keys())
+        for slot_val in serialized["slots"].values():
+            if isinstance(slot_val, list):
+                for name in slot_val:
+                    assert name in catalog_names
+
+    def test_catalog_slots_organized_by_owner_and_role(self):
+        """Catalog slots are nested: {owner: {role: name}}."""
+        g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        catalog = acc.catalog(PID.RED)
+
+        assert "self" in catalog["slots"]
+        assert "opponent" in catalog["slots"]
+        assert "shared" in catalog["slots"]
+        assert catalog["slots"]["self"]["hand"] == "red_hand"
+        assert catalog["slots"]["self"]["deck"] == "red_deck"
+        assert catalog["slots"]["self"]["equipment"] == "red_equipment"
+        assert catalog["slots"]["shared"]["guard_deck"] == "guard_deck"
+
+    def test_catalog_owner_labels_relative_to_pid(self):
+        """Catalog labels slots as self/opponent/shared relative to receiving player."""
+        g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        red_catalog = acc.catalog(PID.RED)
+        blue_catalog = acc.catalog(PID.BLUE)
+
+        # RED's "self" slots are BLUE's "opponent" slots (same names)
+        assert set(red_catalog["slots"]["self"].values()) == \
+               set(blue_catalog["slots"]["opponent"].values())
+        # And vice versa
+        assert set(red_catalog["slots"]["opponent"].values()) == \
+               set(blue_catalog["slots"]["self"].values())
+
+    def test_identical_cards_share_wire_name(self):
+        """Two copies of the same card (e.g. enemy_3) share the same name on the wire."""
+        from cards import enemy
+        e1 = enemy(3)
+        e2 = enemy(3)
+        assert e1.name == e2.name == "enemy_3"
+
+    def test_card_option_uses_slot_name_and_index(self):
+        """CardOption serialization uses slot name and index."""
+        g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        ser = acc.serializer()
+
+        hand = g.players[PID.RED].hand
+        top = g.players[PID.RED].deck.draw()
+        hand.slot(top)
+
+        opt = CardOption(top)
+        serialized = ser.option(opt)
+
+        assert serialized["type"] == "card"
+        assert serialized["slot"] == "red_hand"
+        assert serialized["index"] == hand.cards.index(top)
+
+    def test_weapon_slots_in_catalog(self):
+        """Weapon slots are nested by owner and role."""
+        g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        catalog = acc.catalog(PID.RED)
+
+        assert "self" in catalog["weapon_slots"]
+        assert "ws_0" in catalog["weapon_slots"]["self"]
+
+    def test_weapons_in_state(self):
+        """Weapons in state carry name, card, sharpness, kills."""
+        g = create_initial_state(seed=42)
+        acc = Accumulator(g)
+        ser = acc.serializer()
+        view = compute_player_view(g, PID.RED)
+        serialized = ser.player_view(view, PID.RED)
+
+        assert "weapons" in serialized
+        for w in serialized["weapons"]:
+            assert "name" in w
+            assert "sharpness" in w
+            assert "kills" in w
+            assert "card" in w
 
 
 # ── AsyncAggregateInterpreter ────────────────────────────────

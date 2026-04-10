@@ -25,7 +25,7 @@ from helpers import interp, minimal_game, count_all_cards
 # ── Helpers ───────────────────────────────────────────────────
 
 def _armed(level, sharpness_level=0):
-    ws = WeaponSlot()
+    ws = WeaponSlot("t")
     ws._weapon_slot.slot(weapon(level))
     if sharpness_level > 0:
         ws.killstack.slot(enemy(sharpness_level))
@@ -37,17 +37,17 @@ def _armed(level, sharpness_level=0):
 class TestIsFirstSlot:
 
     def test_empty_slot_not_first(self):
-        assert not Slot().is_first
+        assert not Slot("t").is_first
 
     def test_slot_with_non_first_card(self):
         e = enemy(3)
-        s = Slot([e])
+        s = Slot("t", [e])
         assert not s.is_first
 
     def test_slot_with_first_card(self):
         from core.type import Card
         c = Card("first_enemy", "First Enemy", "", 5, (CardType.ENEMY,), False, True)
-        s = Slot([c])
+        s = Slot("t", [c])
         assert s.is_first
 
 
@@ -186,7 +186,7 @@ class TestResolveWeapon:
         w1 = weapon(3)
         w2 = weapon(5)
         new_w = weapon(8)
-        ws0, ws1 = WeaponSlot(), WeaponSlot()
+        ws0, ws1 = WeaponSlot("t"), WeaponSlot("t")
         ws0._weapon_slot.slot(w1)
         ws1._weapon_slot.slot(w2)
         g.players[PID.RED].weapon_slots = [ws0, ws1]
@@ -281,7 +281,7 @@ class TestDisarm:
     def test_disarm_clears_all_weapon_slots(self):
         g = minimal_game()
         w1, w2 = weapon(3), weapon(5)
-        ws0, ws1 = WeaponSlot(), WeaponSlot()
+        ws0, ws1 = WeaponSlot("t"), WeaponSlot("t")
         ws0._weapon_slot.slot(w1)
         ws1._weapon_slot.slot(w2)
         g.players[PID.RED].weapon_slots = [ws0, ws1]

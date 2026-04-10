@@ -57,15 +57,14 @@ class TCPGameServer(GameServer):
 
         acc = Accumulator(g)
         serializer = acc.serializer()
-        catalog_msg = {"type": "catalog", "cards": acc.catalog()}
 
         red_conn = TCPConnection(red_sock)
         blue_conn = TCPConnection(blue_sock)
-        red_conn.send(catalog_msg)
-        blue_conn.send(catalog_msg)
+        red_conn.send({"type": "catalog", **acc.catalog(PID.RED)})
+        blue_conn.send({"type": "catalog", **acc.catalog(PID.BLUE)})
 
-        red = RemotePlayer(red_conn, serializer, "RED")
-        blue = RemotePlayer(blue_conn, serializer, "BLUE")
+        red = RemotePlayer(red_conn, serializer, PID.RED, "RED")
+        blue = RemotePlayer(blue_conn, serializer, PID.BLUE, "BLUE")
 
         red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
         blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")

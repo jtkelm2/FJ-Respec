@@ -23,18 +23,20 @@ def create_initial_state(seed: int | None = None) -> GameState:
     red_card, red_role   = roles[0]
     blue_card, blue_role = roles[1]
 
-    red = PlayerState(alignment=red_role.alignment, role=red_role, deck=Slot(red_deck))  # pragma: no mutate
+    red = PlayerState("red", alignment=red_role.alignment, role=red_role)  # pragma: no mutate
+    red.deck.slot(*red_deck)
     red.equipment.slot(red_card)
 
-    blue = PlayerState(alignment=blue_role.alignment, role=blue_role, deck=Slot(blue_deck))  # pragma: no mutate
+    blue = PlayerState("blue", alignment=blue_role.alignment, role=blue_role)  # pragma: no mutate
+    blue.deck.slot(*blue_deck)
     blue.equipment.slot(blue_card)
 
     return GameState(
         rng=rng,
         priority=rng.choice([PID.RED, PID.BLUE]),  # pragma: no mutate
         players={PID.RED: red, PID.BLUE: blue},
-        guard_deck=Slot(guards),  # pragma: no mutate
-        action_field=ActionField(),
+        guard_deck=Slot("guard_deck", guards),  # pragma: no mutate
+        action_field=ActionField("shared"),
     )
 
 

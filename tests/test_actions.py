@@ -82,7 +82,7 @@ class TestSlotCard:
     def test_auto_moves_from_previous_slot(self):
         g = create_initial_state(seed=42)
         c = food(1)
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         s1.slot(c)
 
         run(g, do(SlotCard(c, s2)), interp())
@@ -98,7 +98,7 @@ class TestSlot2Slot:
 
     def test_moves_exactly_one_card(self):
         g = create_initial_state(seed=42)
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         s1.slot(food(1), food(2))
 
         run(g, do(Slot2Slot(s1, s2)), interp())
@@ -108,7 +108,7 @@ class TestSlot2Slot:
 
     def test_noop_from_empty_source(self):
         g = create_initial_state(seed=42)
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         s2.slot(food(1))
 
         run(g, do(Slot2Slot(s1, s2)), interp())
@@ -121,7 +121,7 @@ class TestSlot2SlotAll:
 
     def test_transfers_everything(self):
         g = create_initial_state(seed=42)
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         s1.slot(*[food(i) for i in range(1, 6)])
 
         run(g, do(Slot2SlotAll(s1, s2)), interp())
@@ -131,7 +131,7 @@ class TestSlot2SlotAll:
 
     def test_noop_from_empty(self):
         g = create_initial_state(seed=42)
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         run(g, do(Slot2SlotAll(s1, s2)), interp())
         assert s1.is_empty()
         assert s2.is_empty()

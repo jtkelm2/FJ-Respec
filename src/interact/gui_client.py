@@ -82,7 +82,10 @@ class GUIGameClient(GameClient):
     are marshaled to the main thread via root.after()."""
 
     def __init__(self):
-        self._cards: dict[int, dict] = {}
+        self._cards: dict[str, dict] = {}           # name → card entry
+        self._my_slots: dict[str, str] = {}
+        self._opp_slots: dict[str, str] = {}
+        self._shared_slots: dict[str, str] = {}
         self._send_lock = Lock()
         self._conn: TCPConnection | None = None
 
@@ -173,6 +176,20 @@ class GUIGameClient(GameClient):
         cards.pack(side="left", fill="x", expand=True)
         return cards
 
+    # ── catalog helpers ────────────────────────────────────────
+
+    def _my(self, view: ClientPlayerView, role: str) -> list[str] | int | None:
+        name = self._my_slots.get(role)
+        return view["slots"].get(name) if name else None
+
+    def _opp(self, view: ClientPlayerView, role: str) -> list[str] | int | None:
+        name = self._opp_slots.get(role)
+        return view["slots"].get(name) if name else None
+
+    def _shared(self, view: ClientPlayerView, role: str) -> list[str] | int | None:
+        name = self._shared_slots.get(role)
+        return view["slots"].get(name) if name else None
+
     # ── card rendering ─────────────────────────────────────────
 
     def _card_color(self, entry: dict) -> str:
@@ -181,15 +198,19 @@ class GUIGameClient(GameClient):
                 return TYPE_COLORS[t]
         return UNKNOWN_COLOR
 
+    def _card_display(self, name: str) -> str:
+        entry = self._cards.get(name)
+        return entry["display_name"] if entry else name
+
     def _clear(self, container: tk.Frame) -> None:
         for w in container.winfo_children():
             w.destroy()
 
-    def _render_cards(self, container: tk.Frame, uids: list[int]) -> None:
+    def _render_cards(self, container: tk.Frame, names: list[str]) -> None:
         self._clear(container)
-        for uid in uids:
-            entry = self._cards.get(uid) or {
-                "display_name": f"uid:{uid}", "text": "",
+        for name in names:
+            entry = self._cards.get(name) or {
+                "display_name": name, "text": "",
                 "types": [], "level": None, "is_elusive": False,
             }
             self._make_card_widget(container, entry)
@@ -270,68 +291,124 @@ class GUIGameClient(GameClient):
 
     # ── GameClient interface ───────────────────────────────────
 
-    def on_catalog(self, catalog: list[dict]) -> None:
-        for entry in catalog:
-            self._cards[entry["uid"]] = entry
-        log.info("on_catalog: %d cards", len(catalog))
+    def on_catalog(self, cards: dict[str, dict],
+                   slots: dict[str, dict[str, str]],
+                   weapon_slots: dict[str, dict[str, str]]) -> None:
+        self._cards = dict(cards)
+        self._my_slots = dict(slots.get("self", {}))
+        self._opp_slots = dict(slots.get("opponent", {}))
+        self._shared_slots = dict(slots.get("shared", {}))
+        log.info("on_catalog: %d cards, %d my slots, %d opp slots",
+                 len(cards), len(self._my_slots), len(self._opp_slots))
 
     def on_state(self, view: ClientPlayerView) -> None:
-        log.debug("on_state: hp=%s hand=%d deck=%d",
-                  view["hp"], len(view["hand"]), view["deck_size"])
+        log.debug("on_state: hp=%s", view["hp"])
         self.root.after(0, self._render_state, view)
 
     def _render_state(self, view: ClientPlayerView) -> None:
+        opp_deck = self._opp(view, "deck")
+        opp_refresh = self._opp(view, "refresh")
+        opp_discard = self._opp(view, "discard")
+        opp_equip = self._opp(view, "equipment")
+        guard = self._shared(view, "guard_deck")
         self._opp_summary.config(text=(
-            f"deck {view['opp_deck_size']:>2}  "
-            f"refresh {view['opp_refresh_size']:>2}  "
-            f"discard {view['opp_discard_size']:>2}  "
-            f"equipment {view['opp_equipment_count']:>2}  "
+            f"deck {opp_deck}  "
+            f"refresh {opp_refresh}  "
+            f"discard {opp_discard}  "
+            f"equipment {opp_equip}  "
             f"priority {view['priority']}  "
-            f"guard-deck {view['guard_deck_size']}"
+            f"guard-deck {guard}"
         ))
 
-        # Opponent equipment is count-only — render as face-down placeholders.
-        self._render_hidden(self._opp_equipment_row, view["opp_equipment_count"])
+        # Opponent equipment is count-only
+        if isinstance(opp_equip, int):
+            self._render_hidden(self._opp_equipment_row, opp_equip)
+        else:
+            self._clear(self._opp_equipment_row)
 
         self._clear(self._opp_weapons_row)
-        for sharpness, kills in view["opp_weapons"]:
-            self._make_opp_weapon_widget(self._opp_weapons_row, sharpness, kills)
+        for w in view["opp_weapons"]:
+            self._make_opp_weapon_widget(self._opp_weapons_row,
+                                         w["sharpness"], w["kills"])
 
-        self._render_cards(self._opp_top_distant,    view["opp_action_field_top_distant"])
-        self._render_hidden(self._opp_top_hidden,    view["opp_action_field_top_hidden_count"])
-        self._render_hidden(self._opp_bottom_hidden, view["opp_action_field_bottom_hidden_count"])
-        self._render_cards(self._opp_bottom_distant, view["opp_action_field_bottom_distant"])
+        opp_td = self._opp(view, "action_field_top_distant")
+        if isinstance(opp_td, list):
+            self._render_cards(self._opp_top_distant, opp_td)
+        else:
+            self._clear(self._opp_top_distant)
 
-        self._render_cards(self._my_top_distant,    view["action_field_top_distant"])
-        self._render_cards(self._my_top_hidden,     view["action_field_top_hidden"])
-        self._render_cards(self._my_bottom_hidden,  view["action_field_bottom_hidden"])
-        self._render_cards(self._my_bottom_distant, view["action_field_bottom_distant"])
+        opp_th = self._opp(view, "action_field_top_hidden")
+        if isinstance(opp_th, int):
+            self._render_hidden(self._opp_top_hidden, opp_th)
+        else:
+            self._clear(self._opp_top_hidden)
 
-        self._render_cards(self._my_equipment_row, view["equipment"])
+        opp_bh = self._opp(view, "action_field_bottom_hidden")
+        if isinstance(opp_bh, int):
+            self._render_hidden(self._opp_bottom_hidden, opp_bh)
+        else:
+            self._clear(self._opp_bottom_hidden)
+
+        opp_bd = self._opp(view, "action_field_bottom_distant")
+        if isinstance(opp_bd, list):
+            self._render_cards(self._opp_bottom_distant, opp_bd)
+        else:
+            self._clear(self._opp_bottom_distant)
+
+        # Own action field
+        for container, role in [
+            (self._my_top_distant, "action_field_top_distant"),
+            (self._my_top_hidden, "action_field_top_hidden"),
+            (self._my_bottom_hidden, "action_field_bottom_hidden"),
+            (self._my_bottom_distant, "action_field_bottom_distant"),
+        ]:
+            contents = self._my(view, role)
+            if isinstance(contents, list):
+                self._render_cards(container, contents)
+            else:
+                self._clear(container)
+
+        equip = self._my(view, "equipment")
+        if isinstance(equip, list):
+            self._render_cards(self._my_equipment_row, equip)
+        else:
+            self._clear(self._my_equipment_row)
 
         self._clear(self._my_weapons_row)
-        for uid, sharpness, kills in view["weapons"]:
-            if uid is None:
+        for w in view["weapons"]:
+            if w["card"] is None:
                 self._make_empty_weapon_widget(self._my_weapons_row)
             else:
-                base = self._cards.get(uid, {})
-                # Inject sharpness/kills into the tooltip without mutating the catalog.
+                base = self._cards.get(w["card"], {})
                 entry = dict(base)
                 entry["text"] = (
-                    f"sharpness {sharpness}, {kills} kills\n\n"
+                    f"sharpness {w['sharpness']}, {w['kills']} kills\n\n"
                     + (base.get("text") or "")
                 )
                 self._make_card_widget(self._my_weapons_row, entry)
 
-        self._render_cards(self._my_sidebar_row, view["sidebar"])
-        self._render_cards(self._my_hand_row,    view["hand"])
+        sidebar = self._my(view, "sidebar")
+        if isinstance(sidebar, list):
+            self._render_cards(self._my_sidebar_row, sidebar)
+        else:
+            self._clear(self._my_sidebar_row)
 
+        hand = self._my(view, "hand")
+        hand_count = len(hand) if isinstance(hand, list) else 0
+        if isinstance(hand, list):
+            self._render_cards(self._my_hand_row, hand)
+        else:
+            self._clear(self._my_hand_row)
+
+        deck = self._my(view, "deck")
+        refresh = self._my(view, "refresh")
+        discard = self._my(view, "discard")
         self._my_summary.config(text=(
             f"HP {view['hp']:>2}  "
-            f"deck {view['deck_size']:>2}  "
-            f"refresh {view['refresh_size']:>2}  "
-            f"discard {view['discard_size']:>2}  "
-            f"hand {len(view['hand']):>2}"
+            f"deck {deck}  "
+            f"refresh {refresh}  "
+            f"discard {discard}  "
+            f"hand {hand_count}"
         ))
 
         gr = view["game_result"]
@@ -385,12 +462,11 @@ class GUIGameClient(GameClient):
             case "text":
                 return opt["text"]
             case "card":
-                e = self._cards.get(opt["uid"])
-                return e["display_name"] if e else f"uid:{opt['uid']}"
+                return f"card at {opt['slot']}[{opt['index']}]"
             case "slot":
-                return f"slot:{opt['uid']}"
+                return opt["name"]
             case "weapon_slot":
-                return f"weapon:{opt['uid']}"
+                return opt["name"]
             case _:
                 return str(opt)
 
@@ -431,12 +507,11 @@ class GUIGameClient(GameClient):
                 log.debug("recv: type=%s", msg["type"])
                 match msg["type"]:
                     case "catalog":
-                        self.on_catalog(msg["cards"])
+                        self.on_catalog(msg["cards"], msg["slots"],
+                                        msg["weapon_slots"])
                     case "state":
                         self.on_state(msg["view"])
                     case "prompt":
-                        # Per-prompt worker thread keeps the recv loop free
-                        # to drain state updates while the user is thinking.
                         Thread(target=self._handle_prompt, args=(msg,),
                                daemon=True, name="prompt-worker").start()
                     case "notify":

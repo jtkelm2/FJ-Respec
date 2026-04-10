@@ -34,9 +34,11 @@ def other(pid:PID) -> PID:
     case PID.BLUE: return PID.RED
      
 class Slot:
+  name: str
   _cards: list[Card]
 
-  def __init__(self, cards: list[Card] | None = None):
+  def __init__(self, name: str, cards: list[Card] | None = None):
+    self.name = name
     self._cards = []
     if cards is not None: self.slot(*cards)
   
@@ -75,12 +77,14 @@ class Slot:
      rng.shuffle(self._cards)
 
 class WeaponSlot:
+  name: str
   _weapon_slot: Slot
   killstack: Slot
 
-  def __init__(self):
-    self._weapon_slot = Slot()
-    self.killstack = Slot()
+  def __init__(self, name: str):
+    self.name = name
+    self._weapon_slot = Slot(f"{name}_weapon")
+    self.killstack = Slot(f"{name}_killstack")
 
   @property
   def weapon(self) -> Card | None:
@@ -226,35 +230,37 @@ class ActionField:
     top_hidden: Slot
     bottom_hidden: Slot
 
-    def __init__(self):
-      self.top_distant = Slot()
-      self.bottom_distant = Slot()
-      self.top_hidden = Slot()
-      self.bottom_hidden = Slot()
+    def __init__(self, prefix: str):
+      self.top_distant = Slot(f"{prefix}_action_field_top_distant")
+      self.bottom_distant = Slot(f"{prefix}_action_field_bottom_distant")
+      self.top_hidden = Slot(f"{prefix}_action_field_top_hidden")
+      self.bottom_hidden = Slot(f"{prefix}_action_field_bottom_hidden")
 
     def slots_in_fill_order(self) -> list[Slot]:
       return [self.top_distant, self.top_hidden, self.bottom_hidden, self.bottom_distant]
 
 @dataclass
 class PlayerState:
+    prefix: str  # e.g. "red", "blue" — used to name child slots
+
     hp: int = 20
     hp_cap: int = 20
     hp_floor: int | None = None
     hp_ceiling: int | None = None
     alignment: Alignment = Alignment.GOOD
     role: Role = field(default_factory=DefaultRole)
-    action_field: ActionField = field(default_factory=ActionField)
-    # permanent_traits: frozenset[Trait] = frozenset()
 
-    deck: Slot = field(default_factory=Slot)
-    refresh: Slot = field(default_factory=Slot)
-    discard: Slot = field(default_factory=Slot)
-    hand: Slot = field(default_factory=Slot)
-    sidebar: Slot = field(default_factory=Slot)
+    # These are initialized in __post_init__ from prefix
+    action_field: ActionField = field(init=False)
+    deck: Slot = field(init=False)
+    refresh: Slot = field(init=False)
+    discard: Slot = field(init=False)
+    hand: Slot = field(init=False)
+    sidebar: Slot = field(init=False)
+    equipment: Slot = field(init=False)
+    weapon_slots: list[WeaponSlot] = field(init=False)
 
-    equipment: Slot = field(default_factory=Slot)
     max_equipment: int = 2
-    weapon_slots: list[WeaponSlot] = field(default_factory=lambda: [WeaponSlot()])
 
     # Per-action-phase tracking
     is_satiated: bool = False
@@ -262,6 +268,17 @@ class PlayerState:
     action_plays_left: int = 3
 
     # active_traits: frozenset[Trait] = frozenset()
+
+    def __post_init__(self):
+        p = self.prefix
+        self.action_field = ActionField(p)
+        self.deck = Slot(f"{p}_deck")
+        self.refresh = Slot(f"{p}_refresh")
+        self.discard = Slot(f"{p}_discard")
+        self.hand = Slot(f"{p}_hand")
+        self.sidebar = Slot(f"{p}_sidebar")
+        self.equipment = Slot(f"{p}_equipment")
+        self.weapon_slots = [WeaponSlot(f"{p}_ws_0")]
 
     # Flags
     is_dead: bool = False
@@ -300,8 +317,8 @@ class GameState:
     players: dict[PID,PlayerState] = field(default_factory=dict)
 
     # Shared
-    guard_deck: Slot = field(default_factory=Slot)
-    action_field: ActionField = field(default_factory=ActionField)
+    guard_deck: Slot = field(default_factory=lambda: Slot("guard_deck"))
+    action_field: ActionField = field(default_factory=lambda: ActionField("shared"))
 
     def shuffle(self,slot:Slot):
        slot.shuffle(self.rng)

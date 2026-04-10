@@ -23,20 +23,20 @@ class TestSlotBookkeeping:
         assert _card().slot is None
 
     def test_slot_sets_card_reference(self):
-        s = Slot()
+        s = Slot("t")
         c = _card()
         s.slot(c)
         assert c.slot is s
 
     def test_deslot_clears_card_reference(self):
-        s = Slot()
+        s = Slot("t")
         c = _card()
         s.slot(c)
         s.deslot(c)
         assert c.slot is None
 
     def test_draw_clears_card_reference(self):
-        s = Slot()
+        s = Slot("t")
         c = _card()
         s.slot(c)
         drawn = s.draw()
@@ -44,8 +44,8 @@ class TestSlotBookkeeping:
         assert c.slot is None
 
     def test_slotting_into_new_slot_auto_deslots_from_old(self):
-        s1 = Slot()
-        s2 = Slot()
+        s1 = Slot("t")
+        s2 = Slot("t")
         c = _card()
         s1.slot(c)
         s2.slot(c)
@@ -60,7 +60,7 @@ class TestSlotOrdering:
     """Slot is LIFO: slot() inserts at front, draw() pops from front."""
 
     def test_slot_inserts_at_front(self):
-        s = Slot()
+        s = Slot("t")
         a, b, c = _card("a"), _card("b"), _card("c")
         s.slot(a)
         s.slot(b)
@@ -70,7 +70,7 @@ class TestSlotOrdering:
         assert s.cards[2] is a
 
     def test_draw_returns_front_card(self):
-        s = Slot()
+        s = Slot("t")
         a, b = _card("a"), _card("b")
         s.slot(a)
         s.slot(b)
@@ -78,7 +78,7 @@ class TestSlotOrdering:
 
     def test_multi_slot_reverses_argument_order(self):
         """slot(a, b, c) inserts sequentially, so cards end up [c, b, a]."""
-        s = Slot()
+        s = Slot("t")
         a, b, c = _card("a"), _card("b"), _card("c")
         s.slot(a, b, c)
         assert s.cards == [c, b, a]
@@ -90,7 +90,7 @@ class TestCardConservation:
     """Cards are never created or destroyed by slot operations."""
 
     def test_move_via_draw_conserves_count(self):
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         cards = [_card(f"c{i}") for i in range(5)]
         s1.slot(*cards)
 
@@ -100,14 +100,14 @@ class TestCardConservation:
         assert len(s1.cards) + len(s2.cards) == 5
 
     def test_auto_deslot_does_not_duplicate(self):
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         c = _card()
         s1.slot(c)
         s2.slot(c)
         assert len(s1.cards) + len(s2.cards) == 1
 
     def test_full_transfer_conserves_count(self):
-        s1, s2 = Slot(), Slot()
+        s1, s2 = Slot("t"), Slot("t")
         all_cards = [_card(f"c{i}") for i in range(10)]
         s1.slot(*all_cards)
 
@@ -123,30 +123,30 @@ class TestCardConservation:
 class TestSlotEdgeCases:
 
     def test_empty_slot_is_empty(self):
-        assert Slot().is_empty()
+        assert Slot("t").is_empty()
 
     def test_non_empty_slot_is_not_empty(self):
-        assert not Slot([_card()]).is_empty()
+        assert not Slot("t", [_card()]).is_empty()
 
     def test_draw_last_card_makes_slot_empty(self):
-        s = Slot([_card()])
+        s = Slot("t", [_card()])
         s.draw()
         assert s.is_empty()
 
     def test_constructor_slots_all_cards(self):
         cards = [_card("a"), _card("b")]
-        s = Slot(cards)
+        s = Slot("t", cards)
         assert len(s.cards) == 2
         for c in cards:
             assert c.slot is s
 
     def test_deslot_absent_card_raises(self):
         with pytest.raises(AssertionError):
-            Slot().deslot(_card())
+            Slot("t").deslot(_card())
 
     def test_draw_from_empty_raises(self):
         with pytest.raises(AssertionError):
-            Slot().draw()
+            Slot("t").draw()
 
 
 # ---------- Card.is_type ----------

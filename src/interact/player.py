@@ -6,7 +6,7 @@ from queue import Queue
 from socket import socket
 from threading import Event, Thread
 
-from core.type import Option, PlayerView, PromptHalf
+from core.type import Option, PID, PlayerView, PromptHalf
 from interact.serial import Serializer, ClientOption
 
 log = getLogger("server")
@@ -143,9 +143,10 @@ class RemotePlayer(Player):
   and dispatches them to either _option_queue or _oob_queue based
   on message type."""
 
-  def __init__(self, conn: Connection, serializer: Serializer, label: str = "?"):
+  def __init__(self, conn: Connection, serializer: Serializer, pid: PID, label: str = "?"):
     self._conn = conn
     self._serializer = serializer
+    self._pid = pid
     self._label = label
     self._last_options: list[Option] = []
     self._option_queue: Queue[Option] = Queue()
@@ -175,7 +176,7 @@ class RemotePlayer(Player):
   def push_state(self, view: PlayerView) -> None:
     log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d)",
               self._label, view.hp, len(view.hand), view.deck_size)
-    self._conn.send({"type": "state", "view": self._serializer.player_view(view)})
+    self._conn.send({"type": "state", "view": self._serializer.player_view(view, self._pid)})
 
   def prompt(self, prompt_half: PromptHalf) -> Option:
     self._last_options = list(prompt_half.options)

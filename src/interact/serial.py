@@ -1,69 +1,113 @@
 """
 Serialization layer for the wire boundary.
 
-Translates between engine object references (Card, Slot, WeaponSlot)
-and stable integer UIDs for the wire protocol. The engine never sees UIDs.
+Cards, slots, and weapon slots are all identified on the wire by their
+name field. No synthetic UIDs are needed — names are baked into the
+engine objects at construction time.
+
+The catalog maps names to metadata (display_name, types, etc. for cards;
+owner/role for slots; owner/index for weapon slots). State updates and
+prompt options reference names directly.
 """
 
 from core.type import (
-    Card, CardType, GameState, PID, Slot, WeaponSlot,
-    PlayerView, PromptHalf, Option,
+    Card, GameState, PID, Slot, WeaponSlot,
+    PlayerView, Option,
     CardOption, SlotOption, WeaponSlotOption, TextOption,
-    GameResult, Outcome, other,
+    other,
 )
 
-type UID = int
 type ClientOption = dict
 type ClientPlayerView = dict
 
 
 class Serializer:
-    """Server-side: converts engine objects → UIDs for the wire."""
+    """Server-side: converts engine objects → wire format."""
 
-    def __init__(self, card_key: dict[Card, UID],
-                 slot_key: dict[Slot, UID],
-                 ws_key: dict[WeaponSlot, UID]):
-        self._card = card_key
-        self._slot = slot_key
-        self._ws = ws_key
-
-    def card(self, c: Card) -> UID:
-        return self._card[c]
-
-    def slot(self, s: Slot) -> UID:
-        return self._slot[s]
-
-    def weapon_slot(self, ws: WeaponSlot) -> UID:
-        return self._ws[ws]
+    def __init__(self,
+                 pid_to_ws: dict[PID, list[WeaponSlot]]):
+        self._pid_to_ws = pid_to_ws
 
     def option(self, opt: Option) -> dict:
         match opt:
             case TextOption(text):
-                return {"type": "text", "text": text}
+                return {"type": "text", "text": text}  # pragma: no mutate
             case CardOption(card):
-                return {"type": "card", "uid": self.card(card)}
+                assert card.slot is not None, "CardOption card must be in a Slot"
+                return {
+                    "type": "card",  # pragma: no mutate
+                    "slot": card.slot.name,  # pragma: no mutate
+                    "index": card.slot.cards.index(card),
+                }
             case SlotOption(slot):
-                return {"type": "slot", "uid": self.slot(slot)}
+                return {"type": "slot", "name": slot.name}  # pragma: no mutate
             case WeaponSlotOption(ws):
-                return {"type": "weapon_slot", "uid": self.weapon_slot(ws)}
+                return {"type": "weapon_slot", "name": ws.name}  # pragma: no mutate
             case _:
-                raise ValueError(f"Unknown option type: {opt}")
+                raise ValueError(f"Unknown option type: {opt}")  # pragma: no mutate
 
-    def prompt_half(self, half: PromptHalf) -> dict:
-        return {
-            "text": half.text,
-            "options": [self.option(o) for o in half.options],
-        }
+    def player_view(self, view: PlayerView, pid: PID) -> dict:
+        opp = other(pid)
+        p_pre = pid.name.lower()
+        o_pre = opp.name.lower()
 
-    def player_view(self, view: PlayerView) -> dict:
-        def _card_uids(cards: list[Card]) -> list[UID]:
-            return [self.card(c) for c in cards]
+        def _cards(cards: list[Card]) -> list[str]:
+            return [c.name for c in cards]
 
+        slots: dict[str, list[str] | int] = {}
+
+        # Own visible slots
+        slots[f"{p_pre}_hand"] = _cards(view.hand)
+        slots[f"{p_pre}_equipment"] = _cards(view.equipment)
+        slots[f"{p_pre}_sidebar"] = _cards(view.sidebar)
+        slots[f"{p_pre}_action_field_top_distant"] = _cards(view.action_field_top_distant)
+        slots[f"{p_pre}_action_field_top_hidden"] = _cards(view.action_field_top_hidden)
+        slots[f"{p_pre}_action_field_bottom_hidden"] = _cards(view.action_field_bottom_hidden)
+        slots[f"{p_pre}_action_field_bottom_distant"] = _cards(view.action_field_bottom_distant)
+
+        # Own count-only slots
+        slots[f"{p_pre}_deck"] = view.deck_size
+        slots[f"{p_pre}_refresh"] = view.refresh_size
+        slots[f"{p_pre}_discard"] = view.discard_size
+
+        # Opponent visible slots
+        slots[f"{o_pre}_action_field_top_distant"] = _cards(view.opp_action_field_top_distant)
+        slots[f"{o_pre}_action_field_bottom_distant"] = _cards(view.opp_action_field_bottom_distant)
+
+        # Opponent count-only / fog-of-war
+        slots[f"{o_pre}_equipment"] = view.opp_equipment_count
+        slots[f"{o_pre}_deck"] = view.opp_deck_size
+        slots[f"{o_pre}_refresh"] = view.opp_refresh_size
+        slots[f"{o_pre}_discard"] = view.opp_discard_size
+        slots[f"{o_pre}_action_field_top_hidden"] = view.opp_action_field_top_hidden_count
+        slots[f"{o_pre}_action_field_bottom_hidden"] = view.opp_action_field_bottom_hidden_count
+
+        # Weapon killstacks (count-only)
+        for i, (_, _, kills) in enumerate(view.weapons):
+            slots[f"{p_pre}_ws_{i}_killstack"] = kills
+        for i, (_, kills) in enumerate(view.opp_weapons):
+            slots[f"{o_pre}_ws_{i}_killstack"] = kills
+
+        # Shared
+        slots["guard_deck"] = view.guard_deck_size
+
+        # Weapons
         weapons = []
-        for w, sharpness, kills in view.weapons:
-            weapons.append([self.card(w) if w is not None else None, sharpness, kills])
+        for ws, (card, sharpness, kills) in zip(self._pid_to_ws[pid], view.weapons):
+            weapons.append({
+                "name": ws.name,  # pragma: no mutate
+                "card": card.name if card is not None else None,
+                "sharpness": sharpness,
+                "kills": kills,
+            })
 
-        opp_weapons = [[s, k] for s, k in view.opp_weapons]
+        opp_weapons = []
+        for ws, (sharpness, kills) in zip(self._pid_to_ws[opp], view.opp_weapons):
+            opp_weapons.append({
+                "name": ws.name,  # pragma: no mutate
+                "sharpness": sharpness,
+                "kills": kills,
+            })
 
         gr = view.game_result
         game_result = None if gr is None else {
@@ -73,204 +117,96 @@ class Serializer:
 
         return {
             "hp": view.hp,
-            "hand": _card_uids(view.hand),
-            "equipment": _card_uids(view.equipment),
+            "slots": slots,
             "weapons": weapons,
-            "deck_size": view.deck_size,
-            "refresh_size": view.refresh_size,
-            "discard_size": view.discard_size,
-            "action_field_top_distant": _card_uids(view.action_field_top_distant),
-            "action_field_top_hidden": _card_uids(view.action_field_top_hidden),
-            "action_field_bottom_hidden": _card_uids(view.action_field_bottom_hidden),
-            "action_field_bottom_distant": _card_uids(view.action_field_bottom_distant),
-            "sidebar": _card_uids(view.sidebar),
-            "opp_equipment_count": view.opp_equipment_count,
             "opp_weapons": opp_weapons,
-            "opp_deck_size": view.opp_deck_size,
-            "opp_refresh_size": view.opp_refresh_size,
-            "opp_discard_size": view.opp_discard_size,
-            "opp_action_field_top_distant": _card_uids(view.opp_action_field_top_distant),
-            "opp_action_field_top_hidden_count": view.opp_action_field_top_hidden_count,
-            "opp_action_field_bottom_hidden_count": view.opp_action_field_bottom_hidden_count,
-            "opp_action_field_bottom_distant": _card_uids(view.opp_action_field_bottom_distant),
             "priority": view.priority.name,
-            "guard_deck_size": view.guard_deck_size,
             "game_result": game_result,
         }
 
 
-class Deserializer:
-    """Client-side: converts UIDs → engine objects."""
-
-    def __init__(self, card_key: dict[UID, Card],
-                 slot_key: dict[UID, Slot],
-                 ws_key: dict[UID, WeaponSlot]):
-        self._card = card_key
-        self._slot = slot_key
-        self._ws = ws_key
-
-    @classmethod
-    def from_catalog(cls, catalog: list[dict]) -> "Deserializer":
-        """Build from a card catalog received over the wire."""
-        cards: dict[UID, Card] = {}
-        for entry in catalog:
-            c = Card(
-                name=entry["name"],
-                display_name=entry["display_name"],
-                text=entry["text"],
-                level=entry["level"],
-                types=tuple(CardType[t] for t in entry["types"]),
-                is_elusive=entry["is_elusive"],
-                is_first=entry["is_first"],
-            )
-            cards[entry["uid"]] = c
-        return cls(cards, {}, {})
-
-    def card(self, uid: UID) -> Card:
-        return self._card[uid]
-
-    def slot(self, uid: UID) -> Slot:
-        return self._slot[uid]
-
-    def weapon_slot(self, uid: UID) -> WeaponSlot:
-        return self._ws[uid]
-
-    def option(self, data: dict) -> Option:
-        match data["type"]:
-            case "text":
-                return TextOption(data["text"])
-            case "card":
-                return CardOption(self.card(data["uid"]))
-            case "slot":
-                return SlotOption(self.slot(data["uid"]))
-            case "weapon_slot":
-                return WeaponSlotOption(self.weapon_slot(data["uid"]))
-            case _:
-                raise ValueError(f"Unknown option type: {data['type']}")
-
-    def player_view(self, data: dict) -> PlayerView:
-        def _cards(uids: list[UID]) -> list[Card]:
-            return [self.card(u) for u in uids]
-
-        def _weapon(w):
-            return (self.card(w[0]) if w[0] is not None else None, w[1], w[2])
-
-        gr = data["game_result"]
-        game_result = None if gr is None else GameResult(
-            winners=tuple(PID[w] for w in gr["winners"]),
-            outcome=Outcome[gr["outcome"]],
-        )
-
-        return PlayerView(
-            hp=data["hp"],
-            hand=_cards(data["hand"]),
-            equipment=_cards(data["equipment"]),
-            weapons=[_weapon(w) for w in data["weapons"]],
-            deck_size=data["deck_size"],
-            refresh_size=data["refresh_size"],
-            discard_size=data["discard_size"],
-            action_field_top_distant=_cards(data["action_field_top_distant"]),
-            action_field_top_hidden=_cards(data["action_field_top_hidden"]),
-            action_field_bottom_hidden=_cards(data["action_field_bottom_hidden"]),
-            action_field_bottom_distant=_cards(data["action_field_bottom_distant"]),
-            sidebar=_cards(data["sidebar"]),
-            opp_equipment_count=data["opp_equipment_count"],
-            opp_weapons=[tuple(w) for w in data["opp_weapons"]],
-            opp_deck_size=data["opp_deck_size"],
-            opp_refresh_size=data["opp_refresh_size"],
-            opp_discard_size=data["opp_discard_size"],
-            opp_action_field_top_distant=_cards(data["opp_action_field_top_distant"]),
-            opp_action_field_top_hidden_count=data["opp_action_field_top_hidden_count"],
-            opp_action_field_bottom_hidden_count=data["opp_action_field_bottom_hidden_count"],
-            opp_action_field_bottom_distant=_cards(data["opp_action_field_bottom_distant"]),
-            priority=PID[data["priority"]],
-            guard_deck_size=data["guard_deck_size"],
-            game_result=game_result,
-        )
-
-
 class Accumulator:
-    """Walks a GameState after setup, assigns UIDs to every Card, Slot, and WeaponSlot."""
+    """Walks a GameState after setup, catalogs all card templates,
+    Slots, and WeaponSlots by their names."""
 
     def __init__(self, g: GameState):
-        self._next_uid: UID = 0
-        self._card_to_uid: dict[Card, UID] = {}
-        self._uid_to_card: dict[UID, Card] = {}
-        self._slot_to_uid: dict[Slot, UID] = {}
-        self._uid_to_slot: dict[UID, Slot] = {}
-        self._ws_to_uid: dict[WeaponSlot, UID] = {}
-        self._uid_to_ws: dict[UID, WeaponSlot] = {}
+        self._card_catalog: dict[str, dict] = {}
+        # (owner, role) → slot name
+        self._slot_roles: list[tuple[PID | None, str, str]] = []
+        # (owner, ws_name)
+        self._ws_roles: list[tuple[PID, str]] = []
+        self._pid_to_ws: dict[PID, list[WeaponSlot]] = {PID.RED: [], PID.BLUE: []}
+
         self._scan(g)
 
-    def _assign(self) -> UID:
-        uid = self._next_uid
-        self._next_uid += 1
-        return uid
+    def _register_template(self, card: Card) -> None:
+        if card.name not in self._card_catalog:
+            self._card_catalog[card.name] = {
+                "name": card.name,  # pragma: no mutate
+                "display_name": card.display_name,  # pragma: no mutate
+                "text": card.text,  # pragma: no mutate
+                "level": card.level,
+                "types": [t.name for t in card.types],
+                "is_elusive": card.is_elusive,
+                "is_first": card.is_first,
+            }
 
-    def _register_card(self, card: Card) -> None:
-        if card not in self._card_to_uid:
-            uid = self._assign()
-            self._card_to_uid[card] = uid
-            self._uid_to_card[uid] = card
+    def _register_slot(self, slot: Slot, owner: PID | None, role: str) -> None:
+        self._slot_roles.append((owner, role, slot.name))
+        for card in slot.cards:
+            self._register_template(card)
 
-    def _register_slot(self, slot: Slot) -> None:
-        if slot not in self._slot_to_uid:
-            uid = self._assign()
-            self._slot_to_uid[slot] = uid
-            self._uid_to_slot[uid] = slot
-            for card in slot.cards:
-                self._register_card(card)
-
-    def _register_ws(self, ws: WeaponSlot) -> None:
-        if ws not in self._ws_to_uid:
-            uid = self._assign()
-            self._ws_to_uid[ws] = uid
-            self._uid_to_ws[uid] = ws
-            if ws.weapon is not None:
-                self._register_card(ws.weapon)
-            for card in ws.killstack.cards:
-                self._register_card(card)
+    def _register_ws(self, ws: WeaponSlot, owner: PID, role: str) -> None:
+        self._ws_roles.append((owner, role))
+        self._pid_to_ws[owner].append(ws)
+        self._register_slot(ws._weapon_slot, owner, f"{role}_weapon")
+        self._register_slot(ws.killstack, owner, f"{role}_killstack")
 
     def _scan(self, g: GameState) -> None:
         for pid in PID:
             p = g.players[pid]
-            for slot in [p.deck, p.refresh, p.discard, p.hand,
-                         p.sidebar, p.equipment]:
-                self._register_slot(slot)
-            for slot in p.action_field.slots_in_fill_order():
-                self._register_slot(slot)
-            for ws in p.weapon_slots:
-                self._register_ws(ws)
-        self._register_slot(g.guard_deck)
+            for slot, role in [
+                (p.deck, "deck"), (p.refresh, "refresh"), (p.discard, "discard"),
+                (p.hand, "hand"), (p.sidebar, "sidebar"), (p.equipment, "equipment"),
+            ]:
+                self._register_slot(slot, pid, role)
+            for slot, role in [
+                (p.action_field.top_distant, "action_field_top_distant"),
+                (p.action_field.top_hidden, "action_field_top_hidden"),
+                (p.action_field.bottom_hidden, "action_field_bottom_hidden"),
+                (p.action_field.bottom_distant, "action_field_bottom_distant"),
+            ]:
+                self._register_slot(slot, pid, role)
+            for i, ws in enumerate(p.weapon_slots):
+                self._register_ws(ws, pid, f"ws_{i}")
+        self._register_slot(g.guard_deck, None, "guard_deck")
 
     def serializer(self) -> Serializer:
-        return Serializer(dict(self._card_to_uid),
-                          dict(self._slot_to_uid),
-                          dict(self._ws_to_uid))
+        return Serializer(
+            {pid: list(ws) for pid, ws in self._pid_to_ws.items()},
+        )
 
-    def deserializer(self) -> Deserializer:
-        return Deserializer(dict(self._uid_to_card),
-                            dict(self._uid_to_slot),
-                            dict(self._uid_to_ws))
+    def catalog(self, pid: PID) -> dict:
+        """Per-player catalog for session init.  Slots and weapon slots
+        are grouped by owner (self/opponent/shared) then keyed by semantic role."""
+        def _owner_label(owner: PID | None) -> str:  # pragma: no mutate
+            if owner is None:
+                return "shared"  # pragma: no mutate
+            return "self" if owner == pid else "opponent"  # pragma: no mutate
 
-    def catalog(self) -> list[dict]:
-        """Card catalog for session init — sent to client once."""
-        result = []
-        for uid in sorted(self._uid_to_card):
-            c = self._uid_to_card[uid]
-            result.append({
-                "uid": uid,
-                "name": c.name,
-                "display_name": c.display_name,
-                "text": c.text,
-                "level": c.level,
-                "types": [t.name for t in c.types],
-                "is_elusive": c.is_elusive,
-                "is_first": c.is_first,
-            })
-        return result
+        slots: dict[str, dict[str, str]] = {}  # pragma: no mutate
+        for owner, role, name in self._slot_roles:
+            label = _owner_label(owner)
+            slots.setdefault(label, {})[role] = name  # pragma: no mutate
 
-    def register_card(self, card: Card) -> UID:
-        """Register a card created mid-game. Returns its UID."""
-        self._register_card(card)
-        return self._card_to_uid[card]
+        weapon_slots: dict[str, dict[str, str]] = {}  # pragma: no mutate
+        for owner, role in self._ws_roles:
+            label = _owner_label(owner)
+            ws = self._pid_to_ws[owner][len(weapon_slots.get(label, {}))]
+            weapon_slots.setdefault(label, {})[role] = ws.name  # pragma: no mutate
+
+        return {
+            "cards": self._card_catalog,
+            "slots": slots,
+            "weapon_slots": weapon_slots,
+        }
