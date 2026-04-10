@@ -1,5 +1,9 @@
 """
 Server-side: GameServer contract, TCPGameServer.
+
+The game protocol (catalog, state pushing, prompt routing, close) lives
+in GameServer.run_game() as a default method. Subclasses provide
+connections via accept_connections(). Transport is an implementation detail.
 """
 
 from abc import abstractmethod
@@ -7,7 +11,8 @@ from logging import DEBUG, FileHandler, Formatter, getLogger
 from socket import AF_INET, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket
 
 from core.type import PID, GameResult
-from interact.player import Player, RemotePlayer, TCPConnection
+from interact.connection import Connection, TCPConnection
+from interact.player import Player, RemotePlayer
 from interact.interpret import run, AsyncAggregateInterpreter, ViewPushingInterpreter
 from interact.serial import Accumulator
 from phase.game import game_loop
@@ -17,17 +22,49 @@ log = getLogger("server")
 
 
 class GameServer:
-  """Abstraction for hosting a game."""
+  """Abstraction for hosting a game.
+
+  Subclasses implement accept_connections() to provide a pair of
+  Connections. The protocol orchestration is handled by run_game()."""
 
   @abstractmethod
-  def run_game(self, seed: int | None = None) -> GameResult:
-    """Set up and run a complete game. Returns the result."""
+  def accept_connections(self) -> tuple[Connection, Connection]:
+    """Block until two players connect. Returns (red_conn, blue_conn)."""
     pass
 
   @abstractmethod
   def shutdown(self) -> None:
     """Release all resources."""
     pass
+
+  def run_game(self, seed: int | None = None) -> GameResult:
+    """Set up and run a complete game over two Connections."""
+    red_conn, blue_conn = self.accept_connections()
+    g = create_initial_state(seed=seed)
+
+    acc = Accumulator(g)
+    serializer = acc.serializer()
+
+    red_conn.send({"type": "catalog", **acc.catalog(PID.RED)})
+    blue_conn.send({"type": "catalog", **acc.catalog(PID.BLUE)})
+
+    red = RemotePlayer(red_conn, serializer, PID.RED, "RED")
+    blue = RemotePlayer(blue_conn, serializer, PID.BLUE, "BLUE")
+
+    red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
+    blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")
+
+    players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
+    interp = ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))
+    run(g, game_loop(), interp)
+
+    # Push final state (includes game_result) then close
+    for pid in PID:
+        interp.push_if_changed(pid)
+        players[pid].close()
+
+    assert g.game_result is not None
+    return g.game_result
 
 
 class TCPGameServer(GameServer):
@@ -37,7 +74,7 @@ class TCPGameServer(GameServer):
         self._port = port
         self._server_sock: socket | None = None
 
-    def _await_sockets(self) -> tuple[socket, socket]:
+    def accept_connections(self) -> tuple[Connection, Connection]:
         self._server_sock = socket(AF_INET, SOCK_STREAM)
         self._server_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self._server_sock.bind((self._host, self._port))
@@ -49,37 +86,7 @@ class TCPGameServer(GameServer):
         blue_sock, blue_addr = self._server_sock.accept()
         log.info("BLUE connected from %s", blue_addr)
 
-        return red_sock, blue_sock
-
-    def run_game(self, seed: int | None = None) -> GameResult:
-        red_sock, blue_sock = self._await_sockets()
-        g = create_initial_state(seed=seed)
-
-        acc = Accumulator(g)
-        serializer = acc.serializer()
-
-        red_conn = TCPConnection(red_sock)
-        blue_conn = TCPConnection(blue_sock)
-        red_conn.send({"type": "catalog", **acc.catalog(PID.RED)})
-        blue_conn.send({"type": "catalog", **acc.catalog(PID.BLUE)})
-
-        red = RemotePlayer(red_conn, serializer, PID.RED, "RED")
-        blue = RemotePlayer(blue_conn, serializer, PID.BLUE, "BLUE")
-
-        red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
-        blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")
-
-        players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
-        interp = ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))
-        run(g, game_loop(), interp)
-
-        # Push final state (includes game_result) then close
-        for pid in PID:
-            interp.push_if_changed(pid)
-            players[pid].close()
-
-        assert g.game_result is not None
-        return g.game_result
+        return TCPConnection(red_sock), TCPConnection(blue_sock)
 
     def shutdown(self) -> None:
         if self._server_sock is not None:

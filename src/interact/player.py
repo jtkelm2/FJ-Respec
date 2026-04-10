@@ -1,12 +1,11 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-import json
 from logging import getLogger
 from queue import Queue
-from socket import socket
 from threading import Event, Thread
 
 from core.type import Option, PID, PlayerView, PromptHalf
+from interact.connection import Connection
 from interact.serial import Serializer, ClientOption
 
 log = getLogger("server")
@@ -88,50 +87,6 @@ class ScriptedPlayer(Player):
 
   def close(self) -> None:
     pass
-
-
-# ── Connection contract ──────────────────────────────────────
-
-class Connection:
-  """Abstract wire connection used by RemotePlayer."""
-
-  @abstractmethod
-  def send(self, msg: dict) -> None:
-    """Send a JSON-serializable message."""
-    pass
-
-  @abstractmethod
-  def recv(self) -> dict:
-    """Block until a message arrives. Returns parsed dict."""
-    pass
-
-  @abstractmethod
-  def close(self) -> None:
-    pass
-
-
-class TCPConnection(Connection):
-  """Connection backed by a TCP socket with line-delimited JSON."""
-
-  def __init__(self, sock: socket):
-    self._sock = sock
-    self._buf = b""
-
-  def send(self, msg: dict) -> None:
-    data = json.dumps(msg) + "\n"
-    self._sock.sendall(data.encode())
-
-  def recv(self) -> dict:
-    while b"\n" not in self._buf:
-      chunk = self._sock.recv(4096)
-      if not chunk:
-        raise ConnectionError("connection closed")
-      self._buf += chunk
-    line, self._buf = self._buf.split(b"\n", 1)
-    return json.loads(line)
-
-  def close(self) -> None:
-    self._sock.close()
 
 
 # ── RemotePlayer ─────────────────────────────────────────────

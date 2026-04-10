@@ -1,12 +1,15 @@
 """
-Client-side: GameClient contract, CLIGameClient, TCP transport.
+Client-side: GameClient contract, CLIGameClient.
+
+The protocol dispatch loop lives in GameClient.run() as a default method —
+subclasses only implement the on_* callbacks. Transport is injected via
+a Connection argument.
 """
 
 from abc import abstractmethod
 from logging import DEBUG, FileHandler, Formatter, getLogger
-from socket import AF_INET, SOCK_STREAM, socket
 
-from interact.player import TCPConnection
+from interact.connection import Connection
 from interact.serial import ClientOption, ClientPlayerView
 
 log = getLogger("client")
@@ -15,7 +18,8 @@ log = getLogger("client")
 # ── GameClient contract ───────────────────────────────────────
 
 class GameClient:
-  """Client-side contract. Frontends implement this."""
+  """Client-side contract. Frontends implement the on_* callbacks.
+  The protocol recv loop is provided by run()."""
 
   @abstractmethod
   def on_catalog(self, cards: dict[str, dict],
@@ -38,6 +42,35 @@ class GameClient:
   def on_notify(self, text: str) -> None:
     """Display a notification message."""
     pass
+
+  def run(self, conn: Connection) -> None:
+    """Synchronous recv loop — dispatches messages to on_* callbacks.
+    Blocks until the server sends 'close' or the connection drops."""
+    try:
+        while True:
+            msg = conn.recv()
+            log.debug("recv: type=%s", msg["type"])
+
+            match msg["type"]:
+                case "catalog":
+                    self.on_catalog(msg["cards"], msg["slots"],
+                                    msg["weapon_slots"])
+                case "state":
+                    self.on_state(msg["view"])
+                case "prompt":
+                    chosen = self.on_prompt(msg["text"], msg["options"])
+                    conn.send({"type": "response", "option": chosen})
+                case "notify":
+                    self.on_notify(msg["text"])
+                case "close":
+                    log.info("Server closed the connection")
+                    self.on_notify("Server closed the connection.")
+                    return
+    except ConnectionError:
+        log.warning("Disconnected from server")
+        self.on_notify("Disconnected from server.")
+    finally:
+        conn.close()
 
 
 # ── CLIGameClient ─────────────────────────────────────────────
@@ -184,42 +217,7 @@ class CLIGameClient(GameClient):
         print(f"\n[!] {text}")  # pragma: no mutate
 
 
-# ── TCP transport + main loop ─────────────────────────────────
-
-def run_client(host: str, port: int, client: GameClient):
-    sock = socket(AF_INET, SOCK_STREAM)
-    sock.connect((host, port))
-    log.info("Connected to %s:%d", host, port)
-    print(f"Connected to {host}:{port}")
-
-    conn = TCPConnection(sock)
-
-    try:
-        while True:
-            msg = conn.recv()
-            log.debug("recv: type=%s", msg["type"])
-
-            match msg["type"]:
-                case "catalog":
-                    client.on_catalog(msg["cards"], msg["slots"],
-                                      msg["weapon_slots"])
-                case "state":
-                    client.on_state(msg["view"])
-                case "prompt":
-                    chosen = client.on_prompt(msg["text"], msg["options"])
-                    conn.send({"type": "response", "option": chosen})
-                case "notify":
-                    client.on_notify(msg["text"])
-                case "close":
-                    log.info("Server closed the connection")
-                    print("\nServer closed the connection.")
-                    break
-    except ConnectionError:
-        log.warning("Disconnected from server")
-        print("\nDisconnected from server.")
-    finally:
-        conn.close()
-
+# ── Entry point ───────────────────────────────────────────────
 
 def _setup_logging():
     import os, datetime
@@ -237,7 +235,12 @@ def _setup_logging():
 
 if __name__ == "__main__":
     import sys
+    from interact.connection import TCPConnection
+
     host = sys.argv[1] if len(sys.argv) > 1 else "localhost"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 9000
     _setup_logging()
-    run_client(host, port, CLIGameClient())
+    conn = TCPConnection.connect(host, port)
+    log.info("Connected to %s:%d", host, port)
+    print(f"Connected to {host}:{port}")
+    CLIGameClient().run(conn)

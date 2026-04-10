@@ -7,7 +7,7 @@ TCP read, the second message is silently dropped.
 
 import socket
 import pytest
-from interact.player import TCPConnection
+from interact.connection import TCPConnection
 
 
 def test_recv_drops_subsequent_messages_in_same_chunk():

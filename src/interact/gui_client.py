@@ -12,11 +12,10 @@ ever stalling the recv loop.
 import sys
 import tkinter as tk
 from logging import DEBUG, FileHandler, Formatter, getLogger
-from socket import AF_INET, SOCK_STREAM, socket
 from threading import Event, Lock, Thread
 
 from interact.client import GameClient
-from interact.player import TCPConnection
+from interact.connection import Connection
 from interact.serial import ClientOption, ClientPlayerView
 
 log = getLogger("client")
@@ -87,7 +86,7 @@ class GUIGameClient(GameClient):
         self._opp_slots: dict[str, str] = {}
         self._shared_slots: dict[str, str] = {}
         self._send_lock = Lock()
-        self._conn: TCPConnection | None = None
+        self._conn: Connection | None = None
 
         self.root = tk.Tk()
         self.root.title("Fool's Journey")
@@ -482,11 +481,9 @@ class GUIGameClient(GameClient):
 
     # ── connection loop ────────────────────────────────────────
 
-    def run(self, host: str, port: int) -> None:
-        sock = socket(AF_INET, SOCK_STREAM)
-        sock.connect((host, port))
-        log.info("Connected to %s:%d", host, port)
-        self._conn = TCPConnection(sock)
+    def run(self, conn: Connection) -> None:  # type: ignore[override]
+        """Override: tkinter mainloop on the main thread, recv on a daemon."""
+        self._conn = conn
 
         Thread(target=self._recv_loop, daemon=True, name="recv").start()
 
@@ -558,7 +555,12 @@ def _setup_logging():
 
 
 if __name__ == "__main__":
+    from interact.connection import TCPConnection
+
     host = sys.argv[1] if len(sys.argv) > 1 else "localhost"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 9000
     _setup_logging()
-    GUIGameClient().run(host, port)
+    conn = TCPConnection.connect(host, port)
+    log.info("Connected to %s:%d", host, port)
+    print(f"Connected to {host}:{port}")
+    GUIGameClient().run(conn)
