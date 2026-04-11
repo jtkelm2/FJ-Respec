@@ -312,6 +312,7 @@ class GameState:
     rng: Random
 
     priority: PID
+    current_phase: Phase | None = None
     game_result: GameResult | None = None
 
     players: dict[PID,PlayerState] = field(default_factory=dict)
@@ -561,16 +562,12 @@ class PlayerView:
     sidebar: list[Card]
 
     # Opponent state (fog of war)
-    opp_equipment_count: int
     opp_deck_size: int
-    opp_refresh_size: int
-    opp_discard_size: int
-    opp_action_field_top_distant: list[Card]        # visible (distant)
-    opp_action_field_top_hidden_count: int           # hidden — count only
-    opp_action_field_bottom_hidden_count: int        # hidden — count only
-    opp_action_field_bottom_distant: list[Card]      # visible (distant)
+    opp_action_field_top_distant: list[Card]
+    opp_action_field_bottom_distant: list[Card]
 
     # Shared
+    current_phase: Phase | None
     priority: PID
     guard_deck_size: int
     game_result: GameResult | None
@@ -598,15 +595,11 @@ def compute_player_view(g: GameState, pid: PID) -> PlayerView:
         action_field_bottom_distant=list(p.action_field.bottom_distant.cards),
         sidebar=list(p.sidebar.cards),
 
-        opp_equipment_count=len(opp.equipment.cards),
         opp_deck_size=len(opp.deck.cards),
-        opp_refresh_size=len(opp.refresh.cards),
-        opp_discard_size=len(opp.discard.cards),
         opp_action_field_top_distant=list(opp.action_field.top_distant.cards),
-        opp_action_field_top_hidden_count=len(opp.action_field.top_hidden.cards),
-        opp_action_field_bottom_hidden_count=len(opp.action_field.bottom_hidden.cards),
         opp_action_field_bottom_distant=list(opp.action_field.bottom_distant.cards),
 
+        current_phase=g.current_phase,
         priority=g.priority,
         guard_deck_size=len(g.guard_deck.cards),
         game_result=g.game_result,

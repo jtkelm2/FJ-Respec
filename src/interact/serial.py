@@ -70,17 +70,10 @@ class Serializer:
         slots[f"{p_pre}_refresh"] = view.refresh_size
         slots[f"{p_pre}_discard"] = view.discard_size
 
-        # Opponent visible slots
+        # Opponent fog-of-war
+        slots[f"{o_pre}_deck"] = view.opp_deck_size
         slots[f"{o_pre}_action_field_top_distant"] = _cards(view.opp_action_field_top_distant)
         slots[f"{o_pre}_action_field_bottom_distant"] = _cards(view.opp_action_field_bottom_distant)
-
-        # Opponent count-only / fog-of-war
-        slots[f"{o_pre}_equipment"] = view.opp_equipment_count
-        slots[f"{o_pre}_deck"] = view.opp_deck_size
-        slots[f"{o_pre}_refresh"] = view.opp_refresh_size
-        slots[f"{o_pre}_discard"] = view.opp_discard_size
-        slots[f"{o_pre}_action_field_top_hidden"] = view.opp_action_field_top_hidden_count
-        slots[f"{o_pre}_action_field_bottom_hidden"] = view.opp_action_field_bottom_hidden_count
 
         # Own weapon killstacks (count-only)
         for i, (_, _, kills) in enumerate(view.weapons):
@@ -109,6 +102,7 @@ class Serializer:
             "hp": view.hp,
             "slots": slots,
             "weapons": weapons,
+            "current_phase": view.current_phase.name if view.current_phase else None,
             "priority": view.priority.name,
             "game_result": game_result,
         }

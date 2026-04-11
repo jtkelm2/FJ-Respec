@@ -183,9 +183,9 @@ def _apply_action(action: Action) -> Effect:
                     p.is_satiated = True
                 yield from do(Discard(player, card, "food consumed"))(g)  # pragma: no mutate
             case EndPhase(phase):
-                pass
+                g.current_phase = None
             case StartPhase(phase):
-                pass
+                g.current_phase = phase
             case GameOver(result):
                 g.game_result = result
             case FlipPriority():

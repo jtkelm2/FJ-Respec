@@ -154,9 +154,7 @@ Sent whenever the visible game state for this player has changed. Carries a comp
       "red_hand": ["food_5", "enemy_3", "weapon_2"],
       "red_deck": 25,
       "red_equipment": ["human"],
-      "blue_deck": 28,
-      "blue_equipment": 1,
-      "blue_action_field_top_hidden": 2,
+      "blue_action_field_top_distant": ["enemy_5"],
       "guard_deck": 14,
       ...
     },
@@ -173,13 +171,14 @@ Sent whenever the visible game state for this player has changed. Carries a comp
 
 | Field          | Type                            | Description                                                                                     |
 | -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `hp`           | int                             | This player's current hit points.                                                               |
-| `slots`        | object                          | Slot name → contents. See §3.2.1.                                                               |
-| `weapons`      | array of weapon objects         | This player's weapon slots. See §3.2.2.                                                         |
-| `priority`     | string                          | `"RED"` or `"BLUE"`. Whose priority it currently is.                                            |
-| `game_result`  | object \| null                  | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.4.    |
+| `hp`             | int                             | This player's current hit points.                                                               |
+| `slots`          | object                          | Slot name → contents. See §3.2.1.                                                               |
+| `weapons`        | array of weapon objects         | This player's weapon slots. See §3.2.2.                                                         |
+| `current_phase`  | string \| null                  | Current game phase: `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`, or `null` between phases.       |
+| `priority`       | string                          | `"RED"` or `"BLUE"`. Whose priority it currently is.                                            |
+| `game_result`    | object \| null                  | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.3.    |
 
-Opponent weapon slots, sharpness, killstacks, and weapon identity are **hidden information** — not included in the state view.
+Opponent weapon slots, sharpness, killstacks, and weapon identity are **hidden information** — not included in the state view. Opponent equipment, refresh, discard, hand, sidebar, and hidden action field slots are also hidden.
 
 #### 3.2.1 Slots
 
@@ -192,10 +191,11 @@ Which slots are visible and which are count-only is determined by fog-of-war rul
 
 | Slot type                             | Own view      | Opponent's view |
 | ------------------------------------- | ------------- | --------------- |
-| hand, equipment, sidebar              | card list     | count           |
-| deck, refresh, discard                | count         | count           |
+| hand, equipment, sidebar              | card list     | hidden          |
+| deck                                  | count         | count           |
+| refresh, discard                      | count         | hidden          |
 | action field distant (top/bottom)     | card list     | card list       |
-| action field hidden (top/bottom)      | card list     | count           |
+| action field hidden (top/bottom)      | card list     | hidden          |
 | weapon/killstack slots                | (via weapons) | hidden          |
 | guard deck                            | count         | count           |
 
@@ -270,19 +270,7 @@ Sent once after the catalog. Tells the client their role and side.
 | `role` | string | Role name (e.g. `"Human"`, `"???"`). |
 | `side` | string | `"RED"` or `"BLUE"`.               |
 
-#### 3.4.2 Phase change
-
-Sent when a new game phase begins.
-
-```json
-{"type": "notify", "kind": "phase_change", "phase": "MANIPULATION"}
-```
-
-| Field   | Type   | Description                                              |
-| ------- | ------ | -------------------------------------------------------- |
-| `phase` | string | One of `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`.        |
-
-#### 3.4.3 Info
+#### 3.4.2 Info
 
 Unstructured text catchall for any other notification.
 

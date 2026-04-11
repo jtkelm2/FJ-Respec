@@ -30,14 +30,14 @@ class RecordingPlayer(ScriptedPlayer):
     def __init__(self, script):
         super().__init__(script)
         self.states: list[PlayerView] = []
-        self.notifications: list[str] = []
+        self.notifications: list = []
         self.closed = False
 
     def push_state(self, view: PlayerView) -> None:
         self.states.append(view)
 
-    def notify(self, text: str) -> None:
-        self.notifications.append(text)
+    def notify(self, notification) -> None:
+        self.notifications.append(notification)
 
     def close(self) -> None:
         self.closed = True
@@ -91,7 +91,11 @@ class TestSerialization:
 
         assert isinstance(serialized["slots"], dict)
         assert "red_hand" in serialized["slots"]
+        # Opponent deck count IS visible
         assert "blue_deck" in serialized["slots"]
+        assert isinstance(serialized["slots"]["blue_deck"], int)
+        # Opponent distant action field IS visible
+        assert "blue_action_field_top_distant" in serialized["slots"]
         assert "guard_deck" in serialized["slots"]
 
     def test_card_names_reference_catalog(self):
@@ -288,13 +292,12 @@ class TestPlayerViewFogOfWar:
         view = compute_player_view(g, PID.RED)
         assert len(view.hand) == len(g.players[PID.RED].hand.cards)
 
-    def test_opponent_hidden_slots_are_counts(self):
-        from cards import enemy
-        g = create_initial_state(seed=42)
-        e = enemy(3)
-        g.players[PID.BLUE].action_field.top_hidden.slot(e)
-
-        view = compute_player_view(g, PID.RED)
-
-        assert view.opp_action_field_top_hidden_count == 1
+    def test_opponent_hidden_slots_not_in_view(self):
+        """Opponent hidden slots, equipment, deck, refresh, discard are not exposed."""
+        view = compute_player_view(create_initial_state(seed=42), PID.RED)
+        assert not hasattr(view, "opp_action_field_top_hidden_count")
+        assert not hasattr(view, "opp_equipment_count")
+        # Opponent deck count IS visible
+        assert isinstance(view.opp_deck_size, int)
+        # Distant action field IS visible
         assert isinstance(view.opp_action_field_top_distant, list)

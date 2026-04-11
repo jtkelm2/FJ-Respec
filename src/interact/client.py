@@ -172,13 +172,9 @@ class CLIGameClient(GameClient):
             if contents and isinstance(contents, list):
                 print(f"  {label}: [{self._card_displays(contents)}]")  # pragma: no mutate
 
-        opp_equip = self._opp(view, "equipment")
         opp_deck = self._opp(view, "deck")
-        opp_refresh = self._opp(view, "refresh")
-        opp_discard = self._opp(view, "discard")
-        print(f"  Opponent: {opp_equip} equipment, "  # pragma: no mutate
-              f"deck {opp_deck}, refresh {opp_refresh}, "
-              f"discard {opp_discard}")
+        if opp_deck is not None:
+            print(f"  Opp Deck: {opp_deck}")  # pragma: no mutate
 
         for label, role in [
             ("Opp Top Distant", "action_field_top_distant"),
@@ -188,11 +184,9 @@ class CLIGameClient(GameClient):
             if contents and isinstance(contents, list):
                 print(f"  {label}: [{self._card_displays(contents)}]")  # pragma: no mutate
 
-        hidden_top = self._opp(view, "action_field_top_hidden")
-        hidden_bot = self._opp(view, "action_field_bottom_hidden")
-        if hidden_top or hidden_bot:
-            print(f"  Opp Hidden: top={hidden_top}, bottom={hidden_bot}")  # pragma: no mutate
-
+        phase = view.get("current_phase")
+        if phase:
+            print(f"  Phase: {phase}")  # pragma: no mutate
         print(f"  Priority: {view['priority']}")  # pragma: no mutate
         print(f"  Guard deck: {self._shared(view, 'guard_deck')}")  # pragma: no mutate
 
@@ -222,8 +216,6 @@ class CLIGameClient(GameClient):
         match notification.get("kind"):
             case "role_assignment":
                 msg = f"You are {notification['role']} ({notification['side']})"
-            case "phase_change":
-                msg = f"Phase: {notification['phase']}"
             case "info":
                 msg = notification["text"]
             case _:

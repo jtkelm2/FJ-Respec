@@ -107,12 +107,8 @@ class GUIGameClient(GameClient):
         self._side.pack(side="right", fill="y")
         self._side.pack_propagate(False)
 
-        # Opponent zones (top)
-        self._opp_summary       = self._make_text_row("Opponent")
-        self._opp_equipment_row = self._make_card_row("Opp Equipment")
+        # Opponent zones (top — only distant action field visible)
         self._opp_top_distant   = self._make_card_row("Opp Top Distant")
-        self._opp_top_hidden    = self._make_card_row("Opp Top Hidden")
-        self._opp_bottom_hidden = self._make_card_row("Opp Bottom Hidden")
         self._opp_bottom_distant= self._make_card_row("Opp Bottom Distant")
 
         tk.Frame(self._board, bg=SEP_COLOR, height=2).pack(fill="x", pady=8)
@@ -309,43 +305,18 @@ class GUIGameClient(GameClient):
         self.root.after(0, self._render_state, view)
 
     def _render_state(self, view: ClientPlayerView) -> None:
+        # Phase + opponent deck in the title bar
+        phase = view.get("current_phase") or "—"
         opp_deck = self._opp(view, "deck")
-        opp_refresh = self._opp(view, "refresh")
-        opp_discard = self._opp(view, "discard")
-        opp_equip = self._opp(view, "equipment")
-        guard = self._shared(view, "guard_deck")
-        self._opp_summary.config(text=(
-            f"deck {opp_deck}  "
-            f"refresh {opp_refresh}  "
-            f"discard {opp_discard}  "
-            f"equipment {opp_equip}  "
-            f"priority {view['priority']}  "
-            f"guard-deck {guard}"
-        ))
+        opp_deck_str = str(opp_deck) if opp_deck is not None else "?"
+        self.root.title(f"Fool's Journey — {phase}  |  priority {view['priority']}  |  opp deck {opp_deck_str}")
 
-        # Opponent equipment is count-only
-        if isinstance(opp_equip, int):
-            self._render_hidden(self._opp_equipment_row, opp_equip)
-        else:
-            self._clear(self._opp_equipment_row)
-
+        # Opponent — only distant action field visible
         opp_td = self._opp(view, "action_field_top_distant")
         if isinstance(opp_td, list):
             self._render_cards(self._opp_top_distant, opp_td)
         else:
             self._clear(self._opp_top_distant)
-
-        opp_th = self._opp(view, "action_field_top_hidden")
-        if isinstance(opp_th, int):
-            self._render_hidden(self._opp_top_hidden, opp_th)
-        else:
-            self._clear(self._opp_top_hidden)
-
-        opp_bh = self._opp(view, "action_field_bottom_hidden")
-        if isinstance(opp_bh, int):
-            self._render_hidden(self._opp_bottom_hidden, opp_bh)
-        else:
-            self._clear(self._opp_bottom_hidden)
 
         opp_bd = self._opp(view, "action_field_bottom_distant")
         if isinstance(opp_bd, list):
@@ -472,8 +443,6 @@ class GUIGameClient(GameClient):
         match notification.get("kind"):
             case "role_assignment":
                 text = f"You are {notification['role']} ({notification['side']})"
-            case "phase_change":
-                text = f"Phase: {notification['phase']}"
             case "info":
                 text = notification["text"]
             case _:
