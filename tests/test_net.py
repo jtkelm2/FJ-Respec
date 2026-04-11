@@ -109,33 +109,32 @@ class TestSerialization:
                 for name in slot_val:
                     assert name in catalog_names
 
-    def test_catalog_slots_organized_by_owner_and_role(self):
-        """Catalog slots are nested: {owner: {role: name}}."""
+    def test_catalog_slots_keyed_by_wire_name(self):
+        """Catalog slots are flat: {wire_name: {owner, role}}."""
         g = create_initial_state(seed=42)
         acc = Accumulator(g)
         catalog = acc.catalog(PID.RED)
 
-        assert "self" in catalog["slots"]
-        assert "opponent" in catalog["slots"]
-        assert "shared" in catalog["slots"]
-        assert catalog["slots"]["self"]["hand"] == "red_hand"
-        assert catalog["slots"]["self"]["deck"] == "red_deck"
-        assert catalog["slots"]["self"]["equipment"] == "red_equipment"
-        assert catalog["slots"]["shared"]["guard_deck"] == "guard_deck"
+        assert catalog["slots"]["red_hand"] == {"owner": "self", "role": "hand"}
+        assert catalog["slots"]["red_deck"] == {"owner": "self", "role": "deck"}
+        assert catalog["slots"]["red_equipment"] == {"owner": "self", "role": "equipment"}
+        assert catalog["slots"]["guard_deck"] == {"owner": "shared", "role": "guard_deck"}
 
     def test_catalog_owner_labels_relative_to_pid(self):
-        """Catalog labels slots as self/opponent/shared relative to receiving player."""
+        """Catalog labels slots as self/opponent relative to receiving player."""
         g = create_initial_state(seed=42)
         acc = Accumulator(g)
         red_catalog = acc.catalog(PID.RED)
         blue_catalog = acc.catalog(PID.BLUE)
 
-        # RED's "self" slots are BLUE's "opponent" slots (same names)
-        assert set(red_catalog["slots"]["self"].values()) == \
-               set(blue_catalog["slots"]["opponent"].values())
+        # RED's "self" slots are BLUE's "opponent" slots (same wire names)
+        red_self = {name for name, info in red_catalog["slots"].items() if info["owner"] == "self"}
+        blue_opp = {name for name, info in blue_catalog["slots"].items() if info["owner"] == "opponent"}
+        assert red_self == blue_opp
         # And vice versa
-        assert set(red_catalog["slots"]["opponent"].values()) == \
-               set(blue_catalog["slots"]["self"].values())
+        red_opp = {name for name, info in red_catalog["slots"].items() if info["owner"] == "opponent"}
+        blue_self = {name for name, info in blue_catalog["slots"].items() if info["owner"] == "self"}
+        assert red_opp == blue_self
 
     def test_identical_cards_share_wire_name(self):
         """Two copies of the same card (e.g. enemy_3) share the same name on the wire."""
@@ -167,8 +166,9 @@ class TestSerialization:
         acc = Accumulator(g)
         catalog = acc.catalog(PID.RED)
 
-        assert "self" in catalog["weapon_slots"]
-        assert "ws_0" in catalog["weapon_slots"]["self"]
+        assert "red_ws_0" in catalog["weapon_slots"]
+        assert catalog["weapon_slots"]["red_ws_0"]["owner"] == "self"
+        assert catalog["weapon_slots"]["red_ws_0"]["role"] == "ws_0"
 
     def test_weapons_in_state(self):
         """Weapons in state carry name, card, sharpness, kills."""

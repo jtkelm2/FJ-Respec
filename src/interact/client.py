@@ -23,8 +23,8 @@ class GameClient:
 
   @abstractmethod
   def on_catalog(self, cards: dict[str, dict],
-                 slots: dict[str, dict[str, str]],
-                 weapon_slots: dict[str, dict[str, str]]) -> None:
+                 slots: dict[str, dict],
+                 weapon_slots: dict[str, dict]) -> None:
     """Receive the catalog at session start."""
     pass
 
@@ -39,8 +39,8 @@ class GameClient:
     pass
 
   @abstractmethod
-  def on_notify(self, text: str) -> None:
-    """Display a notification message."""
+  def on_notify(self, notification: dict) -> None:
+    """Display a structured notification."""
     pass
 
   def run(self, conn: Connection) -> None:
@@ -61,14 +61,14 @@ class GameClient:
                     chosen = self.on_prompt(msg["text"], msg["options"])
                     conn.send({"type": "response", "option": chosen})
                 case "notify":
-                    self.on_notify(msg["text"])
+                    self.on_notify(msg)
                 case "close":
                     log.info("Server closed the connection")
-                    self.on_notify("Server closed the connection.")
+                    self.on_notify({"type": "notify", "kind": "info", "text": "Server closed the connection."})
                     return
     except ConnectionError:
         log.warning("Disconnected from server")
-        self.on_notify("Disconnected from server.")
+        self.on_notify({"type": "notify", "kind": "info", "text": "Disconnected from server."})
     finally:
         conn.close()
 
@@ -86,12 +86,18 @@ class CLIGameClient(GameClient):
         self._shared_slots: dict[str, str] = {}
 
     def on_catalog(self, cards: dict[str, dict],
-                   slots: dict[str, dict[str, str]],
-                   weapon_slots: dict[str, dict[str, str]]) -> None:
+                   slots: dict[str, dict],
+                   weapon_slots: dict[str, dict]) -> None:
         self._cards = dict(cards)
-        self._my_slots = dict(slots.get("self", {}))
-        self._opp_slots = dict(slots.get("opponent", {}))
-        self._shared_slots = dict(slots.get("shared", {}))
+        # Invert flat wire_name → {owner, role} to role → wire_name per owner
+        self._my_slots = {}
+        self._opp_slots = {}
+        self._shared_slots = {}
+        for name, info in slots.items():
+            match info["owner"]:
+                case "self": self._my_slots[info["role"]] = name
+                case "opponent": self._opp_slots[info["role"]] = name
+                case "shared": self._shared_slots[info["role"]] = name
 
     def _card_display(self, name: str) -> str:
         entry = self._cards.get(name)
@@ -212,9 +218,18 @@ class CLIGameClient(GameClient):
             except ValueError:
                 print("  Enter a number")  # pragma: no mutate
 
-    def on_notify(self, text: str) -> None:
-        log.info("on_notify: %s", text)
-        print(f"\n[!] {text}")  # pragma: no mutate
+    def on_notify(self, notification: dict) -> None:
+        match notification.get("kind"):
+            case "role_assignment":
+                msg = f"You are {notification['role']} ({notification['side']})"
+            case "phase_change":
+                msg = f"Phase: {notification['phase']}"
+            case "info":
+                msg = notification["text"]
+            case _:
+                msg = str(notification)
+        log.info("on_notify: %s", msg)
+        print(f"\n[!] {msg}")  # pragma: no mutate
 
 
 # ── Entry point ───────────────────────────────────────────────

@@ -34,7 +34,7 @@ A complete game session, from the perspective of one client, proceeds as follows
 ```
 1. Client opens transport to server.
 2. Server → catalog        (exactly one)
-3. Server → notify         ("You are <Role> (RED|BLUE)")
+3. Server → notify         (kind: role_assignment)
 4. ── game loop ──
    Server → state          (zero or more, before each prompt)
    Server → notify         (zero or more, at any time)
@@ -49,7 +49,7 @@ A complete game session, from the perspective of one client, proceeds as follows
 
 The very first server-to-client message of every session MUST be a `catalog`. No other server-to-client message may precede it. The catalog establishes the naming space used by all subsequent messages. A client receiving any other message before a catalog SHOULD treat it as a protocol error.
 
-After the catalog, the server SHOULD send a `notify` describing the player's role and side, but this is advisory — clients MUST NOT depend on a specific notify being present.
+After the catalog, the server MUST send a `notify` with `kind: "role_assignment"` telling the client their role and side (§3.4.1). This is the canonical way for the client to learn its identity.
 
 ### 2.2 Game loop
 
@@ -88,29 +88,16 @@ Sent exactly once, as the first message of the session. Provides three things: c
     ...
   },
   "slots": {
-    "self": {
-      "hand": "red_hand",
-      "deck": "red_deck",
-      "refresh": "red_refresh",
-      "discard": "red_discard",
-      "sidebar": "red_sidebar",
-      "equipment": "red_equipment",
-      "action_field_top_distant": "red_action_field_top_distant",
-      "action_field_top_hidden": "red_action_field_top_hidden",
-      "action_field_bottom_hidden": "red_action_field_bottom_hidden",
-      "action_field_bottom_distant": "red_action_field_bottom_distant",
-      "ws_0_weapon": "red_ws_0_weapon",
-      "ws_0_killstack": "red_ws_0_killstack"
-    },
-    "opponent": { ... },
-    "shared": {
-      "guard_deck": "guard_deck"
-    }
+    "red_hand":       {"owner": "self",     "role": "hand"},
+    "red_deck":       {"owner": "self",     "role": "deck"},
+    "blue_hand":      {"owner": "opponent", "role": "hand"},
+    "guard_deck":     {"owner": "shared",   "role": "guard_deck"},
+    ...
   },
   "weapon_slots": {
-    "self": { "ws_0": "red_ws_0" },
-    "opponent": { "ws_0": "blue_ws_0" },
-    "shared": {}
+    "red_ws_0":  {"owner": "self",     "role": "ws_0"},
+    "blue_ws_0": {"owner": "opponent", "role": "ws_0"},
+    ...
   }
 }
 ```
@@ -135,15 +122,20 @@ The catalog MAY include cards that the player will never see. Clients MUST NOT i
 
 #### 3.1.2 Slot catalog
 
-`slots` is a JSON object with three keys: `"self"`, `"opponent"`, and `"shared"`. Each maps **semantic role** (e.g. `"hand"`, `"deck"`, `"action_field_top_distant"`) to the slot's **wire name** (e.g. `"red_hand"`).
+`slots` is a JSON object keyed by **slot wire name**. Each value is a description with two fields:
 
-The client uses the semantic role to know *what* a slot is (my hand, opponent's deck, etc.) and the wire name to look up its contents in `state` messages and to interpret `prompt` options that reference slots.
+| Field   | Type   | Description                                                              |
+| ------- | ------ | ------------------------------------------------------------------------ |
+| `owner` | string | `"self"`, `"opponent"`, or `"shared"`. Relative to the receiving player. |
+| `role`  | string | Semantic role (e.g. `"hand"`, `"deck"`, `"action_field_top_distant"`).   |
 
-Weapon-internal slots (the weapon card holder and kill stack per weapon slot) also appear here, keyed by roles like `"ws_0_weapon"` and `"ws_0_killstack"`.
+The client uses `owner` + `role` to know *what* a slot is and the wire name (the key) to look up its contents in `state` messages and to interpret `prompt` options that reference slots.
+
+Weapon-internal slots (the weapon card holder and kill stack per weapon slot) also appear here, with roles like `"ws_0_weapon"` and `"ws_0_killstack"`.
 
 #### 3.1.3 Weapon slot catalog
 
-`weapon_slots` has the same `self`/`opponent`/`shared` structure. Each entry maps a role (e.g. `"ws_0"`) to the weapon slot's wire name (e.g. `"red_ws_0"`). Used to interpret `weapon_slot` options in prompts.
+`weapon_slots` has the same flat structure as `slots`: keyed by **wire name**, each value has `owner` and `role`. Used to interpret `weapon_slot` options in prompts.
 
 #### 3.1.4 Catalog stability
 
@@ -171,9 +163,6 @@ Sent whenever the visible game state for this player has changed. Carries a comp
     "weapons": [
       {"name": "red_ws_0", "card": "weapon_5", "sharpness": 5, "kills": 0}
     ],
-    "opp_weapons": [
-      {"name": "blue_ws_0", "sharpness": 3, "kills": 1}
-    ],
     "priority": "RED",
     "game_result": null
   }
@@ -187,9 +176,10 @@ Sent whenever the visible game state for this player has changed. Carries a comp
 | `hp`           | int                             | This player's current hit points.                                                               |
 | `slots`        | object                          | Slot name → contents. See §3.2.1.                                                               |
 | `weapons`      | array of weapon objects         | This player's weapon slots. See §3.2.2.                                                         |
-| `opp_weapons`  | array of opponent weapon objects| Opponent's weapon slots. See §3.2.3.                                                            |
 | `priority`     | string                          | `"RED"` or `"BLUE"`. Whose priority it currently is.                                            |
 | `game_result`  | object \| null                  | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.4.    |
+
+Opponent weapon slots, sharpness, killstacks, and weapon identity are **hidden information** — not included in the state view.
 
 #### 3.2.1 Slots
 
@@ -206,7 +196,7 @@ Which slots are visible and which are count-only is determined by fog-of-war rul
 | deck, refresh, discard                | count         | count           |
 | action field distant (top/bottom)     | card list     | card list       |
 | action field hidden (top/bottom)      | card list     | count           |
-| weapon/killstack slots                | (via weapons) | count           |
+| weapon/killstack slots                | (via weapons) | hidden          |
 | guard deck                            | count         | count           |
 
 #### 3.2.2 Own weapons
@@ -220,19 +210,7 @@ Each entry in `weapons`:
 | `sharpness`| int            | Current sharpness value.                             |
 | `kills`    | int            | Number of enemies on the kill stack.                 |
 
-#### 3.2.3 Opponent weapons
-
-Each entry in `opp_weapons`:
-
-| Field      | Type   | Description                                          |
-| ---------- | ------ | ---------------------------------------------------- |
-| `name`     | string | Weapon slot wire name (e.g. `"blue_ws_0"`).          |
-| `sharpness`| int    | Current sharpness value (public information).         |
-| `kills`    | int    | Number of enemies on the kill stack (public).         |
-
-Note: opponent weapon card identity is hidden.
-
-#### 3.2.4 Game result
+#### 3.2.3 Game result
 
 When non-null:
 
@@ -277,13 +255,46 @@ Receivers MUST tolerate unknown option `type` values by treating them as opaque 
 
 ### 3.4 `notify`
 
-A non-interactive informational message.
+A non-interactive informational message with a structured `kind` subfield.
+
+#### 3.4.1 Role assignment
+
+Sent once after the catalog. Tells the client their role and side.
 
 ```json
-{"type": "notify", "text": "You are Human (RED)"}
+{"type": "notify", "kind": "role_assignment", "role": "Human", "side": "RED"}
 ```
 
-The client SHOULD display the text. It MUST NOT respond.
+| Field  | Type   | Description                        |
+| ------ | ------ | ---------------------------------- |
+| `role` | string | Role name (e.g. `"Human"`, `"???"`). |
+| `side` | string | `"RED"` or `"BLUE"`.               |
+
+#### 3.4.2 Phase change
+
+Sent when a new game phase begins.
+
+```json
+{"type": "notify", "kind": "phase_change", "phase": "MANIPULATION"}
+```
+
+| Field   | Type   | Description                                              |
+| ------- | ------ | -------------------------------------------------------- |
+| `phase` | string | One of `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`.        |
+
+#### 3.4.3 Info
+
+Unstructured text catchall for any other notification.
+
+```json
+{"type": "notify", "kind": "info", "text": "Some message"}
+```
+
+| Field  | Type   | Description            |
+| ------ | ------ | ---------------------- |
+| `text` | string | Free-text message.     |
+
+Clients SHOULD display all notification kinds. Clients MUST NOT respond to any `notify` message. Clients MUST tolerate unknown `kind` values.
 
 ### 3.5 `close`
 

@@ -82,11 +82,9 @@ class Serializer:
         slots[f"{o_pre}_action_field_top_hidden"] = view.opp_action_field_top_hidden_count
         slots[f"{o_pre}_action_field_bottom_hidden"] = view.opp_action_field_bottom_hidden_count
 
-        # Weapon killstacks (count-only)
+        # Own weapon killstacks (count-only)
         for i, (_, _, kills) in enumerate(view.weapons):
             slots[f"{p_pre}_ws_{i}_killstack"] = kills
-        for i, (_, kills) in enumerate(view.opp_weapons):
-            slots[f"{o_pre}_ws_{i}_killstack"] = kills
 
         # Shared
         slots["guard_deck"] = view.guard_deck_size
@@ -101,14 +99,6 @@ class Serializer:
                 "kills": kills,
             })
 
-        opp_weapons = []
-        for ws, (sharpness, kills) in zip(self._pid_to_ws[opp], view.opp_weapons):
-            opp_weapons.append({
-                "name": ws.name,  # pragma: no mutate
-                "sharpness": sharpness,
-                "kills": kills,
-            })
-
         gr = view.game_result
         game_result = None if gr is None else {
             "winners": [p.name for p in gr.winners],
@@ -119,7 +109,6 @@ class Serializer:
             "hp": view.hp,
             "slots": slots,
             "weapons": weapons,
-            "opp_weapons": opp_weapons,
             "priority": view.priority.name,
             "game_result": game_result,
         }
@@ -134,7 +123,7 @@ class Accumulator:
         # (owner, role) → slot name
         self._slot_roles: list[tuple[PID | None, str, str]] = []
         # (owner, ws_name)
-        self._ws_roles: list[tuple[PID, str]] = []
+        self._ws_roles: list[tuple[PID, str, str]] = []
         self._pid_to_ws: dict[PID, list[WeaponSlot]] = {PID.RED: [], PID.BLUE: []}
 
         self._scan(g)
@@ -157,7 +146,7 @@ class Accumulator:
             self._register_template(card)
 
     def _register_ws(self, ws: WeaponSlot, owner: PID, role: str) -> None:
-        self._ws_roles.append((owner, role))
+        self._ws_roles.append((owner, role, ws.name))
         self._pid_to_ws[owner].append(ws)
         self._register_slot(ws._weapon_slot, owner, f"{role}_weapon")
         self._register_slot(ws.killstack, owner, f"{role}_killstack")
@@ -187,23 +176,22 @@ class Accumulator:
         )
 
     def catalog(self, pid: PID) -> dict:
-        """Per-player catalog for session init.  Slots and weapon slots
-        are grouped by owner (self/opponent/shared) then keyed by semantic role."""
+        """Per-player catalog for session init.
+
+        Cards, slots, and weapon_slots are all keyed by wire name,
+        mapping to a description dict with owner and role."""
         def _owner_label(owner: PID | None) -> str:  # pragma: no mutate
             if owner is None:
                 return "shared"  # pragma: no mutate
             return "self" if owner == pid else "opponent"  # pragma: no mutate
 
-        slots: dict[str, dict[str, str]] = {}  # pragma: no mutate
+        slots: dict[str, dict] = {}  # pragma: no mutate
         for owner, role, name in self._slot_roles:
-            label = _owner_label(owner)
-            slots.setdefault(label, {})[role] = name  # pragma: no mutate
+            slots[name] = {"owner": _owner_label(owner), "role": role}  # pragma: no mutate
 
-        weapon_slots: dict[str, dict[str, str]] = {}  # pragma: no mutate
-        for owner, role in self._ws_roles:
-            label = _owner_label(owner)
-            ws = self._pid_to_ws[owner][len(weapon_slots.get(label, {}))]
-            weapon_slots.setdefault(label, {})[role] = ws.name  # pragma: no mutate
+        weapon_slots: dict[str, dict] = {}  # pragma: no mutate
+        for owner, role, name in self._ws_roles:
+            weapon_slots[name] = {"owner": _owner_label(owner), "role": role}  # pragma: no mutate
 
         return {
             "cards": self._card_catalog,

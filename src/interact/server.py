@@ -12,7 +12,7 @@ from socket import AF_INET, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket
 
 from core.type import PID, GameResult
 from interact.connection import Connection, TCPConnection
-from interact.player import Player, RemotePlayer
+from interact.player import Player, RemotePlayer, RoleAssignment
 from interact.interpret import run, AsyncAggregateInterpreter, ViewPushingInterpreter
 from interact.serial import Accumulator
 from phase.game import game_loop
@@ -51,8 +51,8 @@ class GameServer:
     red = RemotePlayer(red_conn, serializer, PID.RED, "RED")
     blue = RemotePlayer(blue_conn, serializer, PID.BLUE, "BLUE")
 
-    red.notify(f"You are {g.players[PID.RED].role.name} (RED)")
-    blue.notify(f"You are {g.players[PID.BLUE].role.name} (BLUE)")
+    red.notify(RoleAssignment(g.players[PID.RED].role.name, PID.RED))
+    blue.notify(RoleAssignment(g.players[PID.BLUE].role.name, PID.BLUE))
 
     players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
     interp = ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))

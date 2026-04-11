@@ -110,7 +110,6 @@ class GUIGameClient(GameClient):
         # Opponent zones (top)
         self._opp_summary       = self._make_text_row("Opponent")
         self._opp_equipment_row = self._make_card_row("Opp Equipment")
-        self._opp_weapons_row   = self._make_card_row("Opp Weapons")
         self._opp_top_distant   = self._make_card_row("Opp Top Distant")
         self._opp_top_hidden    = self._make_card_row("Opp Top Hidden")
         self._opp_bottom_hidden = self._make_card_row("Opp Bottom Hidden")
@@ -291,12 +290,17 @@ class GUIGameClient(GameClient):
     # ── GameClient interface ───────────────────────────────────
 
     def on_catalog(self, cards: dict[str, dict],
-                   slots: dict[str, dict[str, str]],
-                   weapon_slots: dict[str, dict[str, str]]) -> None:
+                   slots: dict[str, dict],
+                   weapon_slots: dict[str, dict]) -> None:
         self._cards = dict(cards)
-        self._my_slots = dict(slots.get("self", {}))
-        self._opp_slots = dict(slots.get("opponent", {}))
-        self._shared_slots = dict(slots.get("shared", {}))
+        self._my_slots = {}
+        self._opp_slots = {}
+        self._shared_slots = {}
+        for name, info in slots.items():
+            match info["owner"]:
+                case "self": self._my_slots[info["role"]] = name
+                case "opponent": self._opp_slots[info["role"]] = name
+                case "shared": self._shared_slots[info["role"]] = name
         log.info("on_catalog: %d cards, %d my slots, %d opp slots",
                  len(cards), len(self._my_slots), len(self._opp_slots))
 
@@ -324,11 +328,6 @@ class GUIGameClient(GameClient):
             self._render_hidden(self._opp_equipment_row, opp_equip)
         else:
             self._clear(self._opp_equipment_row)
-
-        self._clear(self._opp_weapons_row)
-        for w in view["opp_weapons"]:
-            self._make_opp_weapon_widget(self._opp_weapons_row,
-                                         w["sharpness"], w["kills"])
 
         opp_td = self._opp(view, "action_field_top_distant")
         if isinstance(opp_td, list):
@@ -469,7 +468,16 @@ class GUIGameClient(GameClient):
             case _:
                 return str(opt)
 
-    def on_notify(self, text: str) -> None:
+    def on_notify(self, notification: dict) -> None:
+        match notification.get("kind"):
+            case "role_assignment":
+                text = f"You are {notification['role']} ({notification['side']})"
+            case "phase_change":
+                text = f"Phase: {notification['phase']}"
+            case "info":
+                text = notification["text"]
+            case _:
+                text = str(notification)
         log.info("on_notify: %s", text)
         self.root.after(0, self._show_notify, text)
 
@@ -512,7 +520,7 @@ class GUIGameClient(GameClient):
                         Thread(target=self._handle_prompt, args=(msg,),
                                daemon=True, name="prompt-worker").start()
                     case "notify":
-                        self.on_notify(msg["text"])
+                        self.on_notify(msg)
                     case "close":
                         log.info("Server closed the connection")
                         self.root.after(0, self._show_notify,

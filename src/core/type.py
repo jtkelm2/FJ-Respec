@@ -562,7 +562,6 @@ class PlayerView:
 
     # Opponent state (fog of war)
     opp_equipment_count: int
-    opp_weapons: list[tuple[int, int]]  # (sharpness, kill_count) — no card identity
     opp_deck_size: int
     opp_refresh_size: int
     opp_discard_size: int
@@ -585,10 +584,6 @@ def compute_player_view(g: GameState, pid: PID) -> PlayerView:
     for ws in p.weapon_slots:
         weapons.append((ws.weapon, ws.sharpness(), len(ws.killstack.cards)))
 
-    opp_weapons = []
-    for ws in opp.weapon_slots:
-        opp_weapons.append((ws.sharpness(), len(ws.killstack.cards)))
-
     return PlayerView(
         hp=p.hp,
         hand=list(p.hand.cards),
@@ -604,7 +599,6 @@ def compute_player_view(g: GameState, pid: PID) -> PlayerView:
         sidebar=list(p.sidebar.cards),
 
         opp_equipment_count=len(opp.equipment.cards),
-        opp_weapons=opp_weapons,
         opp_deck_size=len(opp.deck.cards),
         opp_refresh_size=len(opp.refresh.cards),
         opp_discard_size=len(opp.discard.cards),

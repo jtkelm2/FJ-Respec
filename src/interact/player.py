@@ -4,7 +4,7 @@ from logging import getLogger
 from queue import Queue
 from threading import Event, Thread
 
-from core.type import Option, PID, PlayerView, PromptHalf
+from core.type import Option, PID, Phase, PlayerView, PromptHalf
 from interact.connection import Connection
 from interact.serial import Serializer, ClientOption
 
@@ -32,6 +32,24 @@ class Disconnect:
 OOB = Resigned | DrawOffered | DrawAccepted | Disconnect
 
 
+# ── Notification types ───────────────────────────────────────
+
+@dataclass
+class RoleAssignment:
+    role: str    # e.g. "Human", "???"
+    side: PID    # RED or BLUE
+
+@dataclass
+class PhaseChange:
+    phase: Phase
+
+@dataclass
+class Info:
+    text: str
+
+Notification = RoleAssignment | PhaseChange | Info
+
+
 # ── Player contract ──────────────────────────────────────────
 
 class Player:
@@ -53,8 +71,8 @@ class Player:
     pass
 
   @abstractmethod
-  def notify(self, text: str) -> None:
-    """Send a non-interactive message. Non-blocking."""
+  def notify(self, notification: Notification) -> None:
+    """Send a non-interactive notification. Non-blocking."""
     pass
 
   @abstractmethod
@@ -82,7 +100,7 @@ class ScriptedPlayer(Player):
     self._never.wait()
     raise RuntimeError("unreachable")  # pragma: no mutate
 
-  def notify(self, text: str) -> None:
+  def notify(self, notification: Notification) -> None:
     pass
 
   def close(self) -> None:
@@ -148,9 +166,16 @@ class RemotePlayer(Player):
   def receive_oob(self) -> OOB:
     return self._oob_queue.get()
 
-  def notify(self, text: str) -> None:
-    log.info("[%s] notify: %s", self._label, text)
-    self._conn.send({"type": "notify", "text": text})
+  def notify(self, notification: Notification) -> None:
+    match notification:
+      case RoleAssignment(role, side):
+        msg = {"type": "notify", "kind": "role_assignment", "role": role, "side": side.name}
+      case PhaseChange(phase):
+        msg = {"type": "notify", "kind": "phase_change", "phase": phase.name}
+      case Info(text):
+        msg = {"type": "notify", "kind": "info", "text": text}
+    log.info("[%s] notify: %s", self._label, msg)
+    self._conn.send(msg)
 
   def close(self) -> None:
     log.info("[%s] close", self._label)
