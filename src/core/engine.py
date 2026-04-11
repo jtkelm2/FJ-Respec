@@ -68,6 +68,7 @@ def _apply_action(action: Action) -> Effect:
             case Death(target):
                 p = g.players[target]
                 p.is_dead = True
+                g._event_log.append(PlayerDied(target))
             case Refresh(card, player, source):
                 yield from do(SlotCard(card, g.players[player].refresh, "refresh"))(g)  # pragma: no mutate
             case Discard(discarder, card, source):
@@ -79,27 +80,37 @@ def _apply_action(action: Action) -> Effect:
                 yield from do(SlotCard(enemy, ws.killstack, "slay"))(g)  # pragma: no mutate
             case SetHP(target, value, source):
                 p = g.players[target]
+                old_hp = p.hp
                 new_hp = value
                 if p.hp_floor is not None:
                     new_hp = max(new_hp, p.hp_floor)
                 if p.hp_ceiling is not None:
                     new_hp = min(new_hp, p.hp_ceiling)
                 p.hp = new_hp
+                g._event_log.append(HPChanged(target, old_hp, p.hp))
                 if p.hp <= 0:
                     yield from do(Death(target))(g)
             case SlotCard(card, slot, source):
+                old_slot = card.slot
                 slot.slot(card)
+                g._event_log.append(CardMoved(card, old_slot, slot))
             case Slot2Slot(orig, dest, source):
                 if orig.is_empty(): return
-                dest.slot(orig.draw())
+                card = orig.draw()
+                dest.slot(card)
+                g._event_log.append(CardMoved(card, orig, dest))
             case Slot2SlotAll(orig, dest, source):
-                dest.slot(*orig.cards)
+                cards = list(orig.cards)
+                dest.slot(*cards)
+                for card in cards:
+                    g._event_log.append(CardMoved(card, orig, dest))
             case Heal(target, amount, source):
                 yield from do(SetHP(target, g.players[target].hp + amount, source))(g)  # pragma: no mutate
             case Damage(target, amount, source):
                 yield from do(SetHP(target, g.players[target].hp - amount, source))(g)  # pragma: no mutate
             case Shuffle(slot, source):
                 g.shuffle(slot)
+                g._event_log.append(SlotShuffled(slot))
             case ShuffleRefreshIntoDeck(player, source):
                 p = g.players[player]
                 yield from do(Slot2SlotAll(p.refresh, p.deck, "shuffle refresh"))(g)  # pragma: no mutate
@@ -141,7 +152,9 @@ def _apply_action(action: Action) -> Effect:
                     yield from do(Discard(player, ws.weapon, "wield old weapon"))(g)  # pragma: no mutate
                 for kill_card in list(ws.killstack.cards):
                     yield from do(Discard(player, kill_card, "wield kill pile"))(g)  # pragma: no mutate
+                old_slot = card.slot
                 ws.wield(card)
+                g._event_log.append(CardMoved(card, old_slot, ws._weapon_slot))
             case Disarm(player, source):
                 p = g.players[player]
                 for ws in p.weapon_slots:
@@ -184,10 +197,13 @@ def _apply_action(action: Action) -> Effect:
                 yield from do(Discard(player, card, "food consumed"))(g)  # pragma: no mutate
             case EndPhase(phase):
                 g.current_phase = None
+                g._event_log.append(PhaseChanged(None))
             case StartPhase(phase):
                 g.current_phase = phase
+                g._event_log.append(PhaseChanged(phase))
             case GameOver(result):
                 g.game_result = result
+                g._event_log.append(GameEnded(result))
             case FlipPriority():
                 g.priority = other(g.priority)
             case _:  # pragma: no mutate

@@ -300,7 +300,11 @@ class GUIGameClient(GameClient):
         log.info("on_catalog: %d cards, %d my slots, %d opp slots",
                  len(cards), len(self._my_slots), len(self._opp_slots))
 
-    def on_state(self, view: ClientPlayerView) -> None:
+    def on_state(self, view: ClientPlayerView, events: list | None = None) -> None:
+        if events:
+            log.info("on_state: %d events", len(events))
+            for e in events:
+                log.info("  event: %s", e)
         log.debug("on_state: hp=%s", view["hp"])
         self.root.after(0, self._render_state, view)
 
@@ -484,7 +488,7 @@ class GUIGameClient(GameClient):
                         self.on_catalog(msg["cards"], msg["slots"],
                                         msg["weapon_slots"])
                     case "state":
-                        self.on_state(msg["view"])
+                        self.on_state(msg["view"], msg.get("events"))
                     case "prompt":
                         Thread(target=self._handle_prompt, args=(msg,),
                                daemon=True, name="prompt-worker").start()

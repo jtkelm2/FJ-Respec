@@ -321,6 +321,14 @@ class GameState:
     guard_deck: Slot = field(default_factory=lambda: Slot("guard_deck"))
     action_field: ActionField = field(default_factory=lambda: ActionField("shared"))
 
+    # Event log — drained by the interaction layer between state pushes
+    _event_log: list["Event"] = field(default_factory=list)
+
+    def drain_events(self) -> "list[Event]":
+        events = list(self._event_log)
+        self._event_log.clear()
+        return events
+
     def shuffle(self,slot:Slot):
        slot.shuffle(self.rng)
 
@@ -541,6 +549,41 @@ class Trait:
     name: str
     callback: Callable[[Action], Effect]
     kind: TKind
+
+
+############# Events ########
+
+class Event:
+  """Base for events recorded by the engine during action execution."""
+  pass
+
+@dataclass
+class CardMoved(Event):
+  card: Card
+  source: Slot | None
+  dest: Slot
+
+@dataclass
+class HPChanged(Event):
+  target: PID
+  old_hp: int
+  new_hp: int
+
+@dataclass
+class SlotShuffled(Event):
+  slot: Slot
+
+@dataclass
+class PlayerDied(Event):
+  target: PID
+
+@dataclass
+class PhaseChanged(Event):
+  phase: Phase | None
+
+@dataclass
+class GameEnded(Event):
+  result: GameResult
 
 
 ############# Player View ########

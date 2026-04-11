@@ -11,9 +11,10 @@ prompt options reference names directly.
 """
 
 from core.type import (
-    Card, GameState, PID, Slot, WeaponSlot,
-    PlayerView, Option,
+    Card, GameState, PID, Slot, WeaponSlot, Phase,
+    PlayerView, Option, Event, GameResult,
     CardOption, SlotOption, WeaponSlotOption, TextOption,
+    CardMoved, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
     other,
 )
 
@@ -25,8 +26,10 @@ class Serializer:
     """Server-side: converts engine objects → wire format."""
 
     def __init__(self,
-                 pid_to_ws: dict[PID, list[WeaponSlot]]):
+                 pid_to_ws: dict[PID, list[WeaponSlot]],
+                 slot_visibility: dict[PID, dict[Slot, str]]):
         self._pid_to_ws = pid_to_ws
+        self._slot_vis = slot_visibility  # pid → {Slot → "cards"|"count"|"hidden"}
 
     def option(self, opt: Option) -> dict:
         match opt:
@@ -45,6 +48,54 @@ class Serializer:
                 return {"type": "weapon_slot", "name": ws.name}  # pragma: no mutate
             case _:
                 raise ValueError(f"Unknown option type: {opt}")  # pragma: no mutate
+
+    def _vis(self, slot: Slot | None, pid: PID) -> str:
+        if slot is None:
+            return "hidden"
+        return self._slot_vis.get(pid, {}).get(slot, "hidden")
+
+    def events(self, event_list: list, pid: PID) -> list[dict]:
+        result = []
+        for event in event_list:
+            wire = self._serialize_event(event, pid)
+            if wire is not None:
+                result.append(wire)
+        return result
+
+    def _serialize_event(self, event, pid: PID) -> dict | None:
+        match event:
+            case CardMoved(card, source, dest):
+                src_vis = self._vis(source, pid)
+                dst_vis = self._vis(dest, pid)
+                if src_vis == "hidden" and dst_vis == "hidden":
+                    return None
+                card_name = card.name if src_vis == "cards" or dst_vis == "cards" else None
+                return {
+                    "type": "card_moved",
+                    "card": card_name,
+                    "source": source.name if source else None,
+                    "dest": dest.name,
+                }
+            case HPChanged(target, old_hp, new_hp):
+                if target != pid:
+                    return None
+                return {"type": "hp_changed", "old": old_hp, "new": new_hp}
+            case SlotShuffled(slot):
+                if self._vis(slot, pid) == "hidden":
+                    return None
+                return {"type": "slot_shuffled", "slot": slot.name}
+            case PlayerDied(target):
+                return {"type": "player_died", "target": target.name}
+            case PhaseChanged(phase):
+                return {"type": "phase_changed", "phase": phase.name if phase else None}
+            case GameEnded(result):
+                return {
+                    "type": "game_ended",
+                    "winners": [p.name for p in result.winners],
+                    "outcome": result.outcome.name,
+                }
+            case _:
+                return None
 
     def player_view(self, view: PlayerView, pid: PID) -> dict:
         opp = other(pid)
@@ -114,11 +165,13 @@ class Accumulator:
 
     def __init__(self, g: GameState):
         self._card_catalog: dict[str, dict] = {}
-        # (owner, role) → slot name
+        # (owner, role, name)
         self._slot_roles: list[tuple[PID | None, str, str]] = []
-        # (owner, ws_name)
+        # (owner, role, name) for weapon slots
         self._ws_roles: list[tuple[PID, str, str]] = []
         self._pid_to_ws: dict[PID, list[WeaponSlot]] = {PID.RED: [], PID.BLUE: []}
+        # slot obj → (owner, role)
+        self._slot_info: dict[Slot, tuple[PID | None, str]] = {}
 
         self._scan(g)
 
@@ -136,6 +189,7 @@ class Accumulator:
 
     def _register_slot(self, slot: Slot, owner: PID | None, role: str) -> None:
         self._slot_roles.append((owner, role, slot.name))
+        self._slot_info[slot] = (owner, role)
         for card in slot.cards:
             self._register_template(card)
 
@@ -164,9 +218,51 @@ class Accumulator:
                 self._register_ws(ws, pid, f"ws_{i}")
         self._register_slot(g.guard_deck, None, "guard_deck")
 
+    # Roles whose cards are visible to the owning player
+    _CARDS_VISIBLE_OWN = frozenset({
+        "hand", "equipment", "sidebar",
+        "action_field_top_distant", "action_field_top_hidden",
+        "action_field_bottom_hidden", "action_field_bottom_distant",
+    })
+    # Roles whose cards are visible to the opponent
+    _CARDS_VISIBLE_OPP = frozenset({
+        "action_field_top_distant", "action_field_bottom_distant",
+    })
+    # Roles whose count is visible to the owning player
+    _COUNT_VISIBLE_OWN = frozenset({
+        "deck", "refresh", "discard",
+    })
+    # Roles whose count is visible to the opponent
+    _COUNT_VISIBLE_OPP = frozenset({
+        "deck",
+    })
+
+    def _build_visibility(self) -> dict[PID, dict[Slot, str]]:
+        vis: dict[PID, dict[Slot, str]] = {pid: {} for pid in PID}
+        for slot, (owner, role) in self._slot_info.items():
+            for pid in PID:
+                if owner == pid or owner is None:
+                    # Own slot (or shared)
+                    if role in self._CARDS_VISIBLE_OWN:
+                        vis[pid][slot] = "cards"
+                    elif role in self._COUNT_VISIBLE_OWN or owner is None:
+                        vis[pid][slot] = "count"
+                    else:
+                        vis[pid][slot] = "count"  # own killstacks etc.
+                else:
+                    # Opponent's slot
+                    if role in self._CARDS_VISIBLE_OPP:
+                        vis[pid][slot] = "cards"
+                    elif role in self._COUNT_VISIBLE_OPP:
+                        vis[pid][slot] = "count"
+                    else:
+                        vis[pid][slot] = "hidden"
+        return vis
+
     def serializer(self) -> Serializer:
         return Serializer(
             {pid: list(ws) for pid, ws in self._pid_to_ws.items()},
+            self._build_visibility(),
         )
 
     def catalog(self, pid: PID) -> dict:

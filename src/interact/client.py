@@ -29,8 +29,8 @@ class GameClient:
     pass
 
   @abstractmethod
-  def on_state(self, view: ClientPlayerView) -> None:
-    """Render updated visible game state."""
+  def on_state(self, view: ClientPlayerView, events: list | None = None) -> None:
+    """Render updated visible game state. Events are advisory for animation."""
     pass
 
   @abstractmethod
@@ -56,7 +56,7 @@ class GameClient:
                     self.on_catalog(msg["cards"], msg["slots"],
                                     msg["weapon_slots"])
                 case "state":
-                    self.on_state(msg["view"])
+                    self.on_state(msg["view"], msg.get("events"))
                 case "prompt":
                     chosen = self.on_prompt(msg["text"], msg["options"])
                     conn.send({"type": "response", "option": chosen})
@@ -132,7 +132,11 @@ class CLIGameClient(GameClient):
                 return opt["name"]  # pragma: no mutate
             case _: return str(opt)  # pragma: no mutate
 
-    def on_state(self, view: ClientPlayerView) -> None:
+    def on_state(self, view: ClientPlayerView, events: list | None = None) -> None:
+        if events:
+            log.info("on_state: %d events", len(events))
+            for e in events:
+                log.info("  event: %s", e)
         log.debug("on_state: hp=%s", view["hp"])
 
         print("\n--- Game State ---")  # pragma: no mutate

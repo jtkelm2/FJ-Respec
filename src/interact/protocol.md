@@ -180,6 +180,44 @@ Sent whenever the visible game state for this player has changed. Carries a comp
 
 Opponent weapon slots, sharpness, killstacks, and weapon identity are **hidden information** — not included in the state view. Opponent equipment, refresh, discard, hand, sidebar, and hidden action field slots are also hidden.
 
+#### 3.2.X Events
+
+The `state` message MAY include an `events` array describing what happened since the last state push. Events are **advisory** — the `view` is authoritative. Clients that ignore events still work correctly; clients that process them can animate card movements, HP changes, etc.
+
+```json
+{
+  "type": "state",
+  "view": { ... },
+  "events": [
+    {"type": "card_moved", "card": "enemy_3", "source": "red_hand", "dest": "red_discard"},
+    {"type": "card_moved", "card": null, "source": "red_deck", "dest": "red_hand"},
+    {"type": "hp_changed", "old": 20, "new": 15},
+    {"type": "slot_shuffled", "slot": "red_deck"},
+    {"type": "player_died", "target": "RED"},
+    {"type": "phase_changed", "phase": "ACTION"},
+    {"type": "game_ended", "winners": ["RED"], "outcome": "GOOD_KILLED_EVIL"}
+  ]
+}
+```
+
+Event types:
+
+| Event type       | Fields                                    | Description                                             |
+| ---------------- | ----------------------------------------- | ------------------------------------------------------- |
+| `card_moved`     | `card`, `source`, `dest`                  | A card moved between slots. `card` is the card name (or `null` if facedown/hidden). `source`/`dest` are slot wire names. |
+| `hp_changed`     | `old`, `new`                              | This player's HP changed. Only emitted for own HP.      |
+| `slot_shuffled`  | `slot`                                    | A slot was shuffled. `slot` is the wire name.            |
+| `player_died`    | `target`                                  | A player died. `target` is `"RED"` or `"BLUE"`.         |
+| `phase_changed`  | `phase`                                   | Game phase changed. `phase` is the phase name or `null`. |
+| `game_ended`     | `winners`, `outcome`                      | Game ended with the given result.                        |
+
+Events are fog-of-war filtered per player:
+- Card movements where both source and destination are hidden are omitted entirely.
+- Card identity (`card` field) is `null` when neither source nor destination is cards-visible.
+- Own HP changes are visible; opponent HP changes are omitted.
+- Shuffles of hidden slots are omitted.
+- Deaths, phase changes, and game endings are always visible to both players.
+
 #### 3.2.1 Slots
 
 The `slots` object is keyed by **slot wire name** (as established in the catalog). The value is one of:

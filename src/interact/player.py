@@ -52,8 +52,8 @@ class Player:
   """Abstract player."""
 
   @abstractmethod
-  def push_state(self, view: PlayerView) -> None:
-    """Push updated visible state. Non-blocking."""
+  def push_state(self, view: PlayerView, events: list | None = None) -> None:
+    """Push updated visible state with events since last push. Non-blocking."""
     pass
 
   @abstractmethod
@@ -86,7 +86,7 @@ class ScriptedPlayer(Player):
     self.script: list[Option] = list(script)
     self._never = Event()
 
-  def push_state(self, view: PlayerView) -> None:
+  def push_state(self, view: PlayerView, events: list | None = None) -> None:
     pass
 
   def prompt(self, prompt_half: PromptHalf) -> Option:
@@ -142,10 +142,15 @@ class RemotePlayer(Player):
       log.info("[%s] connection closed", self._label)
       self._oob_queue.put(Disconnect())
 
-  def push_state(self, view: PlayerView) -> None:
-    log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d)",
-              self._label, view.hp, len(view.hand), view.deck_size)
-    self._conn.send({"type": "state", "view": self._serializer.player_view(view, self._pid)})
+  def push_state(self, view: PlayerView, events: list | None = None) -> None:
+    log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d, events=%d)",
+              self._label, view.hp, len(view.hand), view.deck_size, len(events or []))
+    msg: dict = {"type": "state", "view": self._serializer.player_view(view, self._pid)}
+    if events:
+      wire_events = self._serializer.events(events, self._pid)
+      if wire_events:
+        msg["events"] = wire_events
+    self._conn.send(msg)
 
   def prompt(self, prompt_half: PromptHalf) -> Option:
     self._last_options = list(prompt_half.options)

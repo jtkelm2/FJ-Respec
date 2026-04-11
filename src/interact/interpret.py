@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from core.type import (
     PID, GameState, Prompt, PKind, PromptHalf, Option,
     Response, PlayerView, compute_player_view,
-    Effect,
+    Effect, Event,
 )
 from interact.player import Player
 
@@ -65,18 +65,19 @@ class ViewPushingInterpreter(Interpreter):
         self._inner = inner
         self._last_view: dict[PID, PlayerView] = {}
 
-    def push_if_changed(self, pid: PID) -> None:
+    def push_if_changed(self, pid: PID, events: list[Event] | None = None) -> None:
         view = compute_player_view(self._g, pid)
         if self._last_view.get(pid) != view:
             log.debug("ViewPushingInterpreter: %s view changed, pushing", pid.name)
-            self._players[pid].push_state(view)
+            self._players[pid].push_state(view, events or [])
             self._last_view[pid] = view
         else:
             log.debug("ViewPushingInterpreter: %s view unchanged, skipping", pid.name)
 
     def interpret(self, prompt: Prompt) -> Response:
+        events = self._g.drain_events()
         for pid in PID:
-            self.push_if_changed(pid)
+            self.push_if_changed(pid, events)
         return self._inner.interpret(prompt)
 
 

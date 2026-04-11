@@ -33,7 +33,7 @@ class RecordingPlayer(ScriptedPlayer):
         self.notifications: list = []
         self.closed = False
 
-    def push_state(self, view: PlayerView) -> None:
+    def push_state(self, view: PlayerView, events: list | None = None) -> None:
         self.states.append(view)
 
     def notify(self, notification) -> None:

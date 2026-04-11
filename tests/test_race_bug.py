@@ -28,7 +28,7 @@ class QueuePlayer(Player):
         self.states: list[PlayerView] = []
         self._never = threading.Event()
 
-    def push_state(self, view: PlayerView) -> None:
+    def push_state(self, view: PlayerView, events: list | None = None) -> None:
         self.states.append(view)
 
     def prompt(self, prompt_half: PromptHalf) -> Option:
