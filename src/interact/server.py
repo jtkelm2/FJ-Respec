@@ -45,11 +45,11 @@ class GameServer:
     acc = Accumulator(g)
     serializer = acc.serializer()
 
-    red_conn.send({"type": "catalog", **acc.catalog(PID.RED)})
-    blue_conn.send({"type": "catalog", **acc.catalog(PID.BLUE)})
-
     red = RemotePlayer(red_conn, serializer, PID.RED, "RED")
     blue = RemotePlayer(blue_conn, serializer, PID.BLUE, "BLUE")
+
+    red.send({"type": "catalog", **acc.catalog(PID.RED)})
+    blue.send({"type": "catalog", **acc.catalog(PID.BLUE)})
 
     red.notify(RoleAssignment(g.players[PID.RED].role.name, PID.RED))
     blue.notify(RoleAssignment(g.players[PID.BLUE].role.name, PID.BLUE))

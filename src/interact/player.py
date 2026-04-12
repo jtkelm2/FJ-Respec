@@ -123,10 +123,17 @@ class RemotePlayer(Player):
     self._listener = Thread(target=self._listen, daemon=True, name=f"recv-{label}")
     self._listener.start()
 
+  def send(self, msg: dict) -> None:
+    """Send a raw protocol message over the wire. Used for messages that
+    don't fit the typed Player contract (e.g. catalog)."""
+    log.info("[%s] >>> %s", self._label, msg)
+    self._conn.send(msg)
+
   def _listen(self) -> None:
     try:
       while True:
         msg = self._conn.recv()
+        log.info("[%s] <<< %s", self._label, msg)
         match msg.get("type"):
           case "response":
             self._option_queue.put(self._resolve_option(msg["option"]))
@@ -143,21 +150,17 @@ class RemotePlayer(Player):
       self._oob_queue.put(Disconnect())
 
   def push_state(self, view: PlayerView, events: list | None = None) -> None:
-    log.debug("[%s] push_state (hp=%d, hand=%d, deck=%d, events=%d)",
-              self._label, view.hp, len(view.hand), view.deck_size, len(events or []))
     msg: dict = {"type": "state", "view": self._serializer.player_view(view, self._pid)}
     if events:
       wire_events = self._serializer.events(events, self._pid)
       if wire_events:
         msg["events"] = wire_events
-    self._conn.send(msg)
+    self.send(msg)
 
   def prompt(self, prompt_half: PromptHalf) -> Option:
     self._last_options = list(prompt_half.options)
     serialized_options = [self._serializer.option(o) for o in prompt_half.options]
-    log.info("[%s] prompt: %r  options=%s",
-             self._label, prompt_half.text, serialized_options)
-    self._conn.send({
+    self.send({
       "type": "prompt",
       "text": prompt_half.text,
       "options": serialized_options,
@@ -173,13 +176,11 @@ class RemotePlayer(Player):
         msg = {"type": "notify", "kind": "role_assignment", "role": role, "side": side.name}
       case Info(text):
         msg = {"type": "notify", "kind": "info", "text": text}
-    log.info("[%s] notify: %s", self._label, msg)
-    self._conn.send(msg)
+    self.send(msg)
 
   def close(self) -> None:
-    log.info("[%s] close", self._label)
     try:
-      self._conn.send({"type": "close"})
+      self.send({"type": "close"})
     except (ConnectionError, OSError):
       pass
     self._conn.close()
