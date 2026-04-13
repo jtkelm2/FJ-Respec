@@ -4,7 +4,7 @@ import random
 from core.type import (
     PID, GameState, PlayerState, Slot, WeaponSlot, ActionField, Phase,
     Card, CardType, GameResult, Outcome,
-    CardMoved, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
+    CardMoved, SlotTransferred, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
 )
 from core.engine import do
 from interact.interpret import run, AggregateInterpreter
@@ -48,7 +48,9 @@ class TestCardMovedEvents:
         assert len(moved) == 1
         assert moved[0].card is c
         assert moved[0].source is src
+        assert moved[0].source_index == 0
         assert moved[0].dest is dest
+        assert moved[0].dest_index == 0
 
     def test_slot2slot_empty_source_no_event(self):
         from core.type import Slot2Slot
@@ -61,7 +63,7 @@ class TestCardMovedEvents:
         events = g.drain_events()
         assert not any(isinstance(e, CardMoved) for e in events)
 
-    def test_slot2slot_all_emits_per_card(self):
+    def test_slot2slot_all_emits_slot_transferred(self):
         from core.type import Slot2SlotAll
         g = minimal_game()
         c1, c2, c3 = food(1), food(2), food(3)
@@ -72,11 +74,24 @@ class TestCardMovedEvents:
         run(g, do(Slot2SlotAll(src, dest, "test")), interp())
 
         events = g.drain_events()
-        moved = [e for e in events if isinstance(e, CardMoved)]
-        assert len(moved) == 3
-        assert all(m.source is src and m.dest is dest for m in moved)
-        moved_cards = {m.card for m in moved}
-        assert moved_cards == {c1, c2, c3}
+        # No per-card CardMoved events for batch transfer
+        assert not any(isinstance(e, CardMoved) for e in events)
+        transferred = [e for e in events if isinstance(e, SlotTransferred)]
+        assert len(transferred) == 1
+        assert transferred[0].source is src
+        assert transferred[0].dest is dest
+        assert transferred[0].count == 3
+
+    def test_slot2slot_all_empty_source_no_event(self):
+        from core.type import Slot2SlotAll
+        g = minimal_game()
+        src = g.players[PID.RED].refresh
+        dest = g.players[PID.RED].deck
+
+        run(g, do(Slot2SlotAll(src, dest, "test")), interp())
+
+        events = g.drain_events()
+        assert not any(isinstance(e, SlotTransferred) for e in events)
 
     def test_discard_emits_card_moved_to_discard(self):
         from core.type import Discard
@@ -230,46 +245,53 @@ class TestFogOfWarFiltering:
         ser = acc.serializer()
         return g, ser
 
-    def test_own_hand_to_discard_visible_with_card(self):
+    def test_own_hand_to_discard_visible(self):
         g, ser = self._setup()
         c = food(3)
         g.players[PID.RED].hand.slot(c)
-        event = CardMoved(c, g.players[PID.RED].hand, g.players[PID.RED].discard)
+        event = CardMoved(c, g.players[PID.RED].hand, 0, g.players[PID.RED].discard, 0)
         wire = ser._serialize_event(event, PID.RED)
 
         assert wire is not None
         assert wire["type"] == "card_moved"
-        assert wire["card"] == c.name  # source is cards-visible
+        assert wire["source"] == "red_hand"
+        assert wire["source_index"] == 0
+        assert wire["dest"] == "red_discard"
+        assert wire["dest_index"] == 0
 
     def test_opponent_hidden_to_hidden_omitted(self):
         g, ser = self._setup()
         c = food(3)
         g.players[PID.BLUE].hand.slot(c)
-        event = CardMoved(c, g.players[PID.BLUE].hand, g.players[PID.BLUE].refresh)
+        event = CardMoved(c, g.players[PID.BLUE].hand, 0, g.players[PID.BLUE].refresh, 0)
         wire = ser._serialize_event(event, PID.RED)
 
         assert wire is None  # both hidden from RED
 
-    def test_deck_to_hand_count_only_no_card_name(self):
+    def test_deck_to_hand_visible_with_indices(self):
         g, ser = self._setup()
         c = g.players[PID.RED].deck.cards[0]
-        event = CardMoved(c, g.players[PID.RED].deck, g.players[PID.RED].hand)
+        event = CardMoved(c, g.players[PID.RED].deck, 0, g.players[PID.RED].hand, 0)
         wire = ser._serialize_event(event, PID.RED)
 
         assert wire is not None
-        # source is count-only, dest is cards-visible → card name visible
-        assert wire["card"] == c.name
+        assert wire["source"] == "red_deck"
+        assert wire["source_index"] == 0
+        assert wire["dest"] == "red_hand"
+        assert wire["dest_index"] == 0
+        # No 'card' field — identity is by slot+index
+        assert "card" not in wire
 
     def test_opponent_deck_to_opponent_distant_visible(self):
         g, ser = self._setup()
         c = g.players[PID.BLUE].deck.cards[0]
         dest = g.players[PID.BLUE].action_field.top_distant
-        event = CardMoved(c, g.players[PID.BLUE].deck, dest)
+        event = CardMoved(c, g.players[PID.BLUE].deck, 0, dest, 0)
         wire = ser._serialize_event(event, PID.RED)
 
         assert wire is not None
-        # dest is cards-visible to RED → card name shown
-        assert wire["card"] == c.name
+        assert wire["source"] == "blue_deck"
+        assert wire["dest"] == "blue_action_field_top_distant"
 
     def test_opponent_hp_change_hidden(self):
         g, ser = self._setup()
@@ -298,6 +320,23 @@ class TestFogOfWarFiltering:
         wire = ser._serialize_event(event, PID.RED)
         assert wire is not None
         assert wire["target"] == "BLUE"
+
+    def test_slot_transferred_visible_with_count(self):
+        g, ser = self._setup()
+        event = SlotTransferred(g.players[PID.RED].refresh, g.players[PID.RED].deck, 5)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is not None
+        assert wire["type"] == "slot_transferred"
+        assert wire["source"] == "red_refresh"
+        assert wire["dest"] == "red_deck"
+        assert wire["count"] == 5
+
+    def test_slot_transferred_opponent_hidden_to_hidden_omitted(self):
+        g, ser = self._setup()
+        # Opponent's refresh and discard are both hidden from RED
+        event = SlotTransferred(g.players[PID.BLUE].refresh, g.players[PID.BLUE].discard, 5)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is None
 
     def test_shuffle_hidden_slot_omitted(self):
         g, ser = self._setup()

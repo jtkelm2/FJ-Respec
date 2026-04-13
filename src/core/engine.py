@@ -92,18 +92,20 @@ def _apply_action(action: Action) -> Effect:
                     yield from do(Death(target))(g)
             case SlotCard(card, slot, source):
                 old_slot = card.slot
+                src_idx = old_slot.cards.index(card) if old_slot is not None else None
                 slot.slot(card)
-                g._event_log.append(CardMoved(card, old_slot, slot))
+                g._event_log.append(CardMoved(card, old_slot, src_idx, slot, slot.cards.index(card)))
             case Slot2Slot(orig, dest, source):
                 if orig.is_empty(): return
-                card = orig.draw()
-                dest.slot(card)
-                g._event_log.append(CardMoved(card, orig, dest))
+                card = orig.draw()  # always pops index 0
+                dest.slot(card)     # always inserts at index 0
+                g._event_log.append(CardMoved(card, orig, 0, dest, 0))
             case Slot2SlotAll(orig, dest, source):
+                count = len(orig.cards)
                 cards = list(orig.cards)
                 dest.slot(*cards)
-                for card in cards:
-                    g._event_log.append(CardMoved(card, orig, dest))
+                if count > 0:
+                    g._event_log.append(SlotTransferred(orig, dest, count))
             case Heal(target, amount, source):
                 yield from do(SetHP(target, g.players[target].hp + amount, source))(g)  # pragma: no mutate
             case Damage(target, amount, source):
@@ -153,8 +155,9 @@ def _apply_action(action: Action) -> Effect:
                 for kill_card in list(ws.killstack.cards):
                     yield from do(Discard(player, kill_card, "wield kill pile"))(g)  # pragma: no mutate
                 old_slot = card.slot
+                src_idx = old_slot.cards.index(card) if old_slot is not None else None
                 ws.wield(card)
-                g._event_log.append(CardMoved(card, old_slot, ws._weapon_slot))
+                g._event_log.append(CardMoved(card, old_slot, src_idx, ws._weapon_slot, 0))
             case Disarm(player, source):
                 p = g.players[player]
                 for ws in p.weapon_slots:

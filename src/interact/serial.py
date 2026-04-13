@@ -14,7 +14,7 @@ from core.type import (
     Card, GameState, PID, Slot, WeaponSlot, Phase,
     PlayerView, Option, Event, GameResult,
     CardOption, SlotOption, WeaponSlotOption, TextOption,
-    CardMoved, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
+    CardMoved, SlotTransferred, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
     other,
 )
 
@@ -64,17 +64,28 @@ class Serializer:
 
     def _serialize_event(self, event, pid: PID) -> dict | None:
         match event:
-            case CardMoved(card, source, dest):
+            case CardMoved(_, source, source_index, dest, dest_index):
                 src_vis = self._vis(source, pid)
                 dst_vis = self._vis(dest, pid)
                 if src_vis == "hidden" and dst_vis == "hidden":
                     return None
-                card_name = card.name if src_vis == "cards" or dst_vis == "cards" else None
                 return {
                     "type": "card_moved",
-                    "card": card_name,
                     "source": source.name if source else None,
+                    "source_index": source_index,
                     "dest": dest.name,
+                    "dest_index": dest_index,
+                }
+            case SlotTransferred(source, dest, count):
+                src_vis = self._vis(source, pid)
+                dst_vis = self._vis(dest, pid)
+                if src_vis == "hidden" and dst_vis == "hidden":
+                    return None
+                return {
+                    "type": "slot_transferred",
+                    "source": source.name,
+                    "dest": dest.name,
+                    "count": count,
                 }
             case HPChanged(target, old_hp, new_hp):
                 if target != pid:

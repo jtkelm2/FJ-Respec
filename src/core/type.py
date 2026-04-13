@@ -561,7 +561,16 @@ class Event:
 class CardMoved(Event):
   card: Card
   source: Slot | None
+  source_index: int | None  # index in source before the move; None if source was None
   dest: Slot
+  dest_index: int           # index in dest after the move
+
+@dataclass
+class SlotTransferred(Event):
+  """All cards from source were moved to dest as a batch. Emitted by Slot2SlotAll."""
+  source: Slot
+  dest: Slot
+  count: int
 
 @dataclass
 class HPChanged(Event):
