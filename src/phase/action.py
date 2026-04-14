@@ -97,7 +97,7 @@ def _run(pid: PID) -> Effect:
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
         opp = other(pid)  # pragma: no mutate
-        sidebar = p.sidebar
+        sidebar = g.players[opp].sidebar
 
         # 1. Refresh each card on your action slots
         for slot in p.action_field.slots_in_fill_order():
