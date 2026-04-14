@@ -50,6 +50,7 @@ def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
                 case CardOption(mf_card):
                     hpb = PromptBuilder("Choose a card from hand to swap with:")  # pragma: no mutate
                     hpb.add_cards(list(hand_cards))  # pragma: no mutate
+                    hpb.context(CardOption(mf_card))  # pragma: no mutate
                     response = yield hpb.build(pid)  # pragma: no mutate
                     chosen = response[pid]
                     assert isinstance(chosen, CardOption)
@@ -90,7 +91,8 @@ def _dump(pid: PID) -> Effect:
             else:
                 pb = (PromptBuilder(f"{card.display_name}:")  # pragma: no mutate
                       .add(TextOption("Discard"))  # pragma: no mutate
-                      .add(TextOption("Refresh")))  # pragma: no mutate
+                      .add(TextOption("Refresh"))  # pragma: no mutate
+                      .context(CardOption(card)))  # pragma: no mutate
                 response = yield pb.build(pid)  # pragma: no mutate
                 if response[pid] == TextOption("Discard"):  # pragma: no mutate
                     yield from do(Discard(other_pid, card, "dump discard"))(g)  # pragma: no mutate
@@ -127,6 +129,7 @@ def _post_manipulation(pid: PID, is_forcing: bool) -> Effect:
                 mf_cards = p.sidebar.cards
                 pb = PromptBuilder("Choose card to force to opponent:")  # pragma: no mutate
                 pb.add_cards(list(mf_cards))  # pragma: no mutate
+                pb.context(SlotOption(slot))  # pragma: no mutate
                 response = yield pb.build(pid)  # pragma: no mutate
                 chosen_opt = response[pid]
                 assert isinstance(chosen_opt, CardOption)

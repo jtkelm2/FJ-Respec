@@ -147,6 +147,7 @@ class PromptHalf:
   """A question for one player."""
   text: str
   options: list[Option]
+  context: list[Option] = field(default_factory=list)
 
 class PKind(Enum):
   BOTH = auto()
@@ -174,6 +175,7 @@ class PromptBuilder:
   def __init__(self, text: str):
     self._text = text
     self._options: list[Option] = []
+    self._context: list[Option] = []
 
   def add(self, option: Option):
     self._options.append(option)
@@ -189,8 +191,13 @@ class PromptBuilder:
       self._options.append(option)
     return self
 
+  def context(self, option: Option):
+    """Attach a relevant game object for display, not selectable as an option."""
+    self._context.append(option)
+    return self
+
   def _half(self) -> PromptHalf:
-    return PromptHalf(self._text, list(self._options))  # pragma: no mutate
+    return PromptHalf(self._text, list(self._options), list(self._context))  # pragma: no mutate
 
   def build(self, pid: PID) -> Prompt:
     return Prompt({pid: self._half()}, PKind.EITHER)  # pragma: no mutate

@@ -159,12 +159,14 @@ class RemotePlayer(Player):
 
   def prompt(self, prompt_half: PromptHalf) -> Option:
     self._last_options = list(prompt_half.options)
-    serialized_options = [self._serializer.option(o) for o in prompt_half.options]
-    self.send({
+    msg: dict = {
       "type": "prompt",
       "text": prompt_half.text,
-      "options": serialized_options,
-    })
+      "options": [self._serializer.option(o) for o in prompt_half.options],
+    }
+    if prompt_half.context:
+      msg["context"] = [self._serializer.option(o) for o in prompt_half.context]
+    self.send(msg)
     return self._option_queue.get()
 
   def receive_oob(self) -> OOB:

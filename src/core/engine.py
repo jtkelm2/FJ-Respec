@@ -132,6 +132,7 @@ def _apply_action(action: Action) -> Effect:
                 while len(p.equipment.cards) >= p.max_equipment:
                     pb = PromptBuilder("Equipment full. Discard which?")  # pragma: no mutate
                     pb.add_cards(list(p.equipment.cards))  # pragma: no mutate
+                    pb.context(CardOption(card))  # pragma: no mutate
                     response = yield pb.build(player)  # pragma: no mutate
                     chosen = response[player]
                     assert isinstance(chosen, CardOption)
@@ -146,6 +147,7 @@ def _apply_action(action: Action) -> Effect:
                     pb = PromptBuilder("Wield in which weapon slot?")  # pragma: no mutate
                     for ws in p.weapon_slots:
                         pb.add(WeaponSlotOption(ws))  # pragma: no mutate
+                    pb.context(CardOption(card))  # pragma: no mutate
                     response = yield pb.build(player)  # pragma: no mutate
                     chosen = response[player]
                     assert isinstance(chosen, WeaponSlotOption)

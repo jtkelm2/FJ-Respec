@@ -390,7 +390,8 @@ class GUIGameClient(GameClient):
                 f"*** GAME OVER: {gr['outcome']} *** winners: {gr['winners']}"
             )
 
-    def on_prompt(self, text: str, options: list[ClientOption]) -> ClientOption:
+    def on_prompt(self, text: str, options: list[ClientOption],
+                  context: list[ClientOption] | None = None) -> ClientOption:
         # Called from a per-prompt worker thread spawned by _recv_loop.
         # We render the prompt on the tk thread, then block on a per-call
         # Event. If a *new* prompt arrives before the user clicks, the new
@@ -398,7 +399,7 @@ class GUIGameClient(GameClient):
         # Event will never fire) and stays parked until the connection
         # closes. Acceptable for barebones — only one outstanding worker
         # is ever wired up to live buttons.
-        log.info("on_prompt: %r  options=%s", text, options)
+        log.info("on_prompt: %r  options=%s  context=%s", text, options, context)
         done = Event()
         holder: list[ClientOption] = []
 
@@ -504,7 +505,7 @@ class GUIGameClient(GameClient):
             self.root.after(0, self._show_notify, "Disconnected from server.")
 
     def _handle_prompt(self, msg: dict) -> None:
-        chosen = self.on_prompt(msg["text"], msg["options"])
+        chosen = self.on_prompt(msg["text"], msg["options"], msg.get("context"))
         with self._send_lock:
             try:
                 assert self._conn is not None

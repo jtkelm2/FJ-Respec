@@ -34,8 +34,13 @@ class GameClient:
     pass
 
   @abstractmethod
-  def on_prompt(self, text: str, options: list[ClientOption]) -> ClientOption:
-    """Display a prompt and return the chosen option."""
+  def on_prompt(self, text: str, options: list[ClientOption],
+                context: list[ClientOption] | None = None) -> ClientOption:
+    """Display a prompt and return the chosen option.
+
+    `context` lists related game objects (same schema as options) that are
+    relevant to the prompt but not selectable. Clients MAY use them to
+    highlight referenced cards/slots visually."""
     pass
 
   @abstractmethod
@@ -58,7 +63,7 @@ class GameClient:
                 case "state":
                     self.on_state(msg["view"], msg.get("events"))
                 case "prompt":
-                    chosen = self.on_prompt(msg["text"], msg["options"])
+                    chosen = self.on_prompt(msg["text"], msg["options"], msg.get("context"))
                     conn.send({"type": "response", "option": chosen})
                 case "notify":
                     self.on_notify(msg)
@@ -201,9 +206,13 @@ class CLIGameClient(GameClient):
                 print(f"  Winners: {gr['winners']}")  # pragma: no mutate
         print("------------------")  # pragma: no mutate
 
-    def on_prompt(self, text: str, options: list[ClientOption]) -> ClientOption:
-        log.info("on_prompt: %r  options=%s", text, options)
+    def on_prompt(self, text: str, options: list[ClientOption],
+                  context: list[ClientOption] | None = None) -> ClientOption:
+        log.info("on_prompt: %r  options=%s  context=%s", text, options, context)
         print(f"\n{text}")  # pragma: no mutate
+        if context:
+            for ctx in context:
+                print(f"  (context: {self._option_label(ctx)})")  # pragma: no mutate
         for i, opt in enumerate(options):
             print(f"  {i}: {self._option_label(opt)}")  # pragma: no mutate
         while True:

@@ -271,19 +271,22 @@ Asks the player to choose one option.
 ```json
 {
   "type": "prompt",
-  "text": "Choose a card to discard:",
+  "text": "Allow opponent to resolve your slot?",
   "options": [
-    {"type": "card", "slot": "red_hand", "index": 0},
-    {"type": "card", "slot": "red_hand", "index": 2},
-    {"type": "text", "text": "Cancel"}
+    {"type": "text", "text": "Allow"},
+    {"type": "text", "text": "Deny"}
+  ],
+  "context": [
+    {"type": "slot", "name": "red_action_field_top_distant"}
   ]
 }
 ```
 
-| Field     | Type              | Notes                                                            |
-| --------- | ----------------- | ---------------------------------------------------------------- |
-| `text`    | string            | Player-facing prompt text. May be empty.                         |
-| `options` | array of *Option* | Non-empty. The client must respond with one of these (see §5.1). |
+| Field     | Type                        | Notes                                                                                     |
+| --------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| `text`    | string                      | Player-facing prompt text. May be empty.                                                  |
+| `options` | array of *Option*           | Non-empty. The client must respond with one of these (see §5.1).                          |
+| `context` | array of *Option* \| absent | Optional. Game objects relevant to the prompt but NOT selectable. Same schema as options. Clients MAY use context to highlight referenced cards/slots visually; clients that ignore `context` still work correctly. The client MUST NOT echo a context option as a response. |
 
 #### 3.3.1 Option types
 

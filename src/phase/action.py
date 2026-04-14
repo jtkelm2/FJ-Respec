@@ -116,7 +116,8 @@ def _run(pid: PID) -> Effect:
         for card in list(sidebar.cards):
             pb = (PromptBuilder(f"Recycle {card.display_name}?")  # pragma: no mutate
                   .add(TextOption("Keep"))  # pragma: no mutate
-                  .add(TextOption("Recycle")))  # pragma: no mutate
+                  .add(TextOption("Recycle"))  # pragma: no mutate
+                  .context(CardOption(card)))  # pragma: no mutate
             response = yield pb.build(opp)  # pragma: no mutate
             if response[opp] == TextOption("Recycle"):
                 yield from do(Refresh(card, pid, "running recycle"))(g)  # pragma: no mutate
@@ -224,7 +225,8 @@ def _action_play(pid: PID) -> Effect:
                 opp_pid = other(pid)  # pragma: no mutate
                 cpb = (PromptBuilder("Allow opponent to resolve your slot?")  # pragma: no mutate
                        .add(TextOption("Allow"))  # pragma: no mutate
-                       .add(TextOption("Deny")))  # pragma: no mutate
+                       .add(TextOption("Deny"))  # pragma: no mutate
+                       .context(SlotOption(slot)))  # pragma: no mutate
                 consent = yield cpb.build(opp_pid)  # pragma: no mutate
                 if consent[opp_pid] == TextOption("Deny"):
                     continue  # denied → re-pick

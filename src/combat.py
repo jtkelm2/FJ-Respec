@@ -18,6 +18,7 @@ def _weapon_builder(g: GameState, player: PID, enemy: Card) -> PromptBuilder:
     for ws in g.players[player].weapon_slots:
         if ws.can_fight(enemy_level):
             pb.add(WeaponSlotOption(ws))  # pragma: no mutate
+    pb.context(CardOption(enemy))  # pragma: no mutate
     return pb
 
 
