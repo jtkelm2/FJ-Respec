@@ -89,6 +89,8 @@ class CLIGameClient(GameClient):
         self._my_slots: dict[str, str] = {}
         self._opp_slots: dict[str, str] = {}
         self._shared_slots: dict[str, str] = {}
+        # Own weapon slot wire names, in catalog order
+        self._my_weapon_slots: list[str] = []
 
     def on_catalog(self, cards: dict[str, dict],
                    slots: dict[str, dict],
@@ -103,6 +105,16 @@ class CLIGameClient(GameClient):
                 case "self": self._my_slots[info["role"]] = name
                 case "opponent": self._opp_slots[info["role"]] = name
                 case "shared": self._shared_slots[info["role"]] = name
+        self._my_weapon_slots = [
+            name for name, info in weapon_slots.items() if info["owner"] == "self"
+        ]
+
+    def _sharpness(self, weapon_name: str, killstack: list[str]) -> int:
+        weapon_level = self._cards.get(weapon_name, {}).get("level") or 0
+        if not killstack:
+            return weapon_level
+        last_kill_level = self._cards.get(killstack[0], {}).get("level") or 0
+        return min(weapon_level, last_kill_level)
 
     def _card_display(self, name: str) -> str:
         entry = self._cards.get(name)
@@ -155,10 +167,14 @@ class CLIGameClient(GameClient):
         if equip and isinstance(equip, list):
             print(f"  Equipment: [{self._card_displays(equip)}]")  # pragma: no mutate
 
-        for w in view["weapons"]:
-            if w["card"] is not None:
-                print(f"  Weapon: {self._card_display(w['card'])} "  # pragma: no mutate
-                      f"(sharpness {w['sharpness']}, {w['kills']} kills)")
+        for ws_name in self._my_weapon_slots:
+            holder = view["slots"].get(f"{ws_name}_weapon", [])
+            killstack = view["slots"].get(f"{ws_name}_killstack", [])
+            if holder:
+                weapon_name = holder[0]
+                kill_str = f" [killstack: {self._card_displays(killstack)}]" if killstack else ""
+                print(f"  Weapon: {self._card_display(weapon_name)} "  # pragma: no mutate
+                      f"(sharpness {self._sharpness(weapon_name, killstack)}){kill_str}")
             else:
                 print(f"  Weapon: Empty")  # pragma: no mutate
 

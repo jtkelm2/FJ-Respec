@@ -137,22 +137,13 @@ class Serializer:
         slots[f"{o_pre}_action_field_top_distant"] = _cards(view.opp_action_field_top_distant)
         slots[f"{o_pre}_action_field_bottom_distant"] = _cards(view.opp_action_field_bottom_distant)
 
-        # Own weapon killstacks (count-only)
-        for i, (_, _, kills) in enumerate(view.weapons):
-            slots[f"{p_pre}_ws_{i}_killstack"] = kills
+        # Own weapon holders + killstacks (public to the owner — card lists of length 0 or N)
+        for i, (card, _, killstack) in enumerate(view.weapons):
+            slots[f"{p_pre}_ws_{i}_weapon"] = [card.name] if card is not None else []
+            slots[f"{p_pre}_ws_{i}_killstack"] = _cards(killstack)
 
         # Shared
         slots["guard_deck"] = view.guard_deck_size
-
-        # Weapons
-        weapons = []
-        for ws, (card, sharpness, kills) in zip(self._pid_to_ws[pid], view.weapons):
-            weapons.append({
-                "name": ws.name,  # pragma: no mutate
-                "card": card.name if card is not None else None,
-                "sharpness": sharpness,
-                "kills": kills,
-            })
 
         gr = view.game_result
         game_result = None if gr is None else {
@@ -163,7 +154,6 @@ class Serializer:
         return {
             "hp": view.hp,
             "slots": slots,
-            "weapons": weapons,
             "current_phase": view.current_phase.name if view.current_phase else None,
             "priority": view.priority.name,
             "game_result": game_result,
@@ -253,13 +243,12 @@ class Accumulator:
         for slot, (owner, role) in self._slot_info.items():
             for pid in PID:
                 if owner == pid or owner is None:
-                    # Own slot (or shared)
-                    if role in self._CARDS_VISIBLE_OWN:
+                    # Own slot (or shared). Own weapon holders + killstacks are public.
+                    if (role in self._CARDS_VISIBLE_OWN
+                            or role.endswith(("_killstack", "_weapon"))):
                         vis[pid][slot] = "cards"
-                    elif role in self._COUNT_VISIBLE_OWN or owner is None:
-                        vis[pid][slot] = "count"
                     else:
-                        vis[pid][slot] = "count"  # own killstacks etc.
+                        vis[pid][slot] = "count"
                 else:
                     # Opponent's slot
                     if role in self._CARDS_VISIBLE_OPP:

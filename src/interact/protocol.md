@@ -155,12 +155,11 @@ Sent whenever the visible game state for this player has changed. Carries a comp
       "red_deck": 25,
       "red_equipment": ["human"],
       "blue_action_field_top_distant": ["enemy_5"],
+      "red_ws_0_weapon": ["weapon_5"],
+      "red_ws_0_killstack": ["enemy_3"],
       "guard_deck": 14,
       ...
     },
-    "weapons": [
-      {"name": "red_ws_0", "card": "weapon_5", "sharpness": 5, "kills": 0}
-    ],
     "priority": "RED",
     "game_result": null
   }
@@ -173,12 +172,13 @@ Sent whenever the visible game state for this player has changed. Carries a comp
 | -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `hp`             | int                             | This player's current hit points.                                                               |
 | `slots`          | object                          | Slot name → contents. See §3.2.1.                                                               |
-| `weapons`        | array of weapon objects         | This player's weapon slots. See §3.2.2.                                                         |
 | `current_phase`  | string \| null                  | Current game phase: `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`, or `null` between phases.       |
 | `priority`       | string                          | `"RED"` or `"BLUE"`. Whose priority it currently is.                                            |
-| `game_result`    | object \| null                  | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.3.    |
+| `game_result`    | object \| null                  | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.2.    |
 
-Opponent weapon slots, sharpness, killstacks, and weapon identity are **hidden information** — not included in the state view. Opponent equipment, refresh, discard, hand, sidebar, and hidden action field slots are also hidden.
+Per-weapon-slot info (the wielded weapon card and the kill stack) lives in `slots`, keyed by `<side>_ws_<n>_weapon` (a card list of length 0 or 1) and `<side>_ws_<n>_killstack` (a card list). The set of weapon slot names comes from the `weapon_slots` catalog. Sharpness is a derived value the client computes as `min(weapon.level, killstack[0].level)` (or just `weapon.level` if the killstack is empty).
+
+Opponent weapon holders, killstacks, sharpness, and weapon identity are **hidden information**. Opponent equipment, refresh, discard, hand, sidebar, and hidden action field slots are also hidden.
 
 #### 3.2.X Events
 
@@ -239,21 +239,11 @@ Which slots are visible and which are count-only is determined by fog-of-war rul
 | refresh, discard                      | count         | hidden          |
 | action field distant (top/bottom)     | card list     | card list       |
 | action field hidden (top/bottom)      | card list     | hidden          |
-| weapon/killstack slots                | (via weapons) | hidden          |
+| weapon holder slots                   | card list     | hidden          |
+| killstack slots                       | card list     | hidden          |
 | guard deck                            | count         | count           |
 
-#### 3.2.2 Own weapons
-
-Each entry in `weapons`:
-
-| Field      | Type           | Description                                          |
-| ---------- | -------------- | ---------------------------------------------------- |
-| `name`     | string         | Weapon slot wire name (e.g. `"red_ws_0"`).           |
-| `card`     | string \| null | Card name of the equipped weapon, or `null` if empty.|
-| `sharpness`| int            | Current sharpness value.                             |
-| `kills`    | int            | Number of enemies on the kill stack.                 |
-
-#### 3.2.3 Game result
+#### 3.2.2 Game result
 
 When non-null:
 

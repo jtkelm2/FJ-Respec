@@ -610,7 +610,7 @@ class PlayerView:
     hp: int
     hand: list[Card]
     equipment: list[Card]
-    weapons: list[tuple[Card | None, int, int]]  # (weapon, sharpness, kill_count)
+    weapons: list[tuple[Card | None, int, list[Card]]]  # (weapon, sharpness, killstack cards)
     deck_size: int
     refresh_size: int
     discard_size: int
@@ -638,7 +638,7 @@ def compute_player_view(g: GameState, pid: PID) -> PlayerView:
 
     weapons = []
     for ws in p.weapon_slots:
-        weapons.append((ws.weapon, ws.sharpness(), len(ws.killstack.cards)))
+        weapons.append((ws.weapon, ws.sharpness(), list(ws.killstack.cards)))
 
     return PlayerView(
         hp=p.hp,

@@ -85,6 +85,7 @@ class GUIGameClient(GameClient):
         self._my_slots: dict[str, str] = {}
         self._opp_slots: dict[str, str] = {}
         self._shared_slots: dict[str, str] = {}
+        self._my_weapon_slots: list[str] = []
         self._send_lock = Lock()
         self._conn: Connection | None = None
 
@@ -297,6 +298,9 @@ class GUIGameClient(GameClient):
                 case "self": self._my_slots[info["role"]] = name
                 case "opponent": self._opp_slots[info["role"]] = name
                 case "shared": self._shared_slots[info["role"]] = name
+        self._my_weapon_slots = [
+            name for name, info in weapon_slots.items() if info["owner"] == "self"
+        ]
         log.info("on_catalog: %d cards, %d my slots, %d opp slots",
                  len(cards), len(self._my_slots), len(self._opp_slots))
 
@@ -348,14 +352,23 @@ class GUIGameClient(GameClient):
             self._clear(self._my_equipment_row)
 
         self._clear(self._my_weapons_row)
-        for w in view["weapons"]:
-            if w["card"] is None:
+        for ws_name in self._my_weapon_slots:
+            holder = view["slots"].get(f"{ws_name}_weapon", [])
+            killstack = view["slots"].get(f"{ws_name}_killstack", [])
+            if not holder:
                 self._make_empty_weapon_widget(self._my_weapons_row)
             else:
-                base = self._cards.get(w["card"], {})
+                weapon_name = holder[0]
+                base = self._cards.get(weapon_name, {})
                 entry = dict(base)
+                weapon_level = base.get("level") or 0
+                last_kill_level = (self._cards.get(killstack[0], {}).get("level") or 0
+                                   if killstack else weapon_level)
+                sharpness = min(weapon_level, last_kill_level) if killstack else weapon_level
+                kill_names = ", ".join(self._cards.get(k, {}).get("display_name", k) for k in killstack)
+                kill_str = f", killstack: [{kill_names}]" if killstack else ""
                 entry["text"] = (
-                    f"sharpness {w['sharpness']}, {w['kills']} kills\n\n"
+                    f"sharpness {sharpness}, {len(killstack)} kills{kill_str}\n\n"
                     + (base.get("text") or "")
                 )
                 self._make_card_widget(self._my_weapons_row, entry)

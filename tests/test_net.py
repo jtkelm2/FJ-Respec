@@ -182,12 +182,12 @@ class TestSerialization:
         view = compute_player_view(g, PID.RED)
         serialized = ser.player_view(view, PID.RED)
 
-        assert "weapons" in serialized
-        for w in serialized["weapons"]:
-            assert "name" in w
-            assert "sharpness" in w
-            assert "kills" in w
-            assert "card" in w
+        # weapons field is gone — weapon holder + killstack live in slots
+        assert "weapons" not in serialized
+        assert "red_ws_0_weapon" in serialized["slots"]
+        assert "red_ws_0_killstack" in serialized["slots"]
+        assert isinstance(serialized["slots"]["red_ws_0_weapon"], list)
+        assert isinstance(serialized["slots"]["red_ws_0_killstack"], list)
 
 
 # ── AsyncAggregateInterpreter ────────────────────────────────
