@@ -273,11 +273,11 @@ def _offer_voluntary_discard(pid: PID) -> Effect:
 
             pb = PromptBuilder("Voluntarily discard?")  # pragma: no mutate
             pb.add_cards(discardable)  # pragma: no mutate
-            pb.add(TextOption("Done"))  # pragma: no mutate
+            pb.add(TextOption("Don't discard"))  # pragma: no mutate
             response = yield pb.build(pid)  # pragma: no mutate
 
             match response[pid]:
-                case TextOption("Done"):
+                case TextOption("Don't discard"):
                     return
                 case CardOption(card):
                     pass

@@ -64,7 +64,7 @@ def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
         equipment_cards = p.equipment.cards
         if equipment_cards:
             pb = PromptBuilder("Force? (Discard equipment to choose which card to send)")  # pragma: no mutate
-            pb.add(TextOption("No"))  # pragma: no mutate
+            pb.add(TextOption("Don't force"))  # pragma: no mutate
             pb.add_cards(list(equipment_cards))  # pragma: no mutate
             response = yield pb.build(pid)  # pragma: no mutate
             match response[pid]:

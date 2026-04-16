@@ -4,7 +4,7 @@ Cross-cutting invariants: properties that must hold across any phase or action.
 The cardinal rule: cards are never created or destroyed.
 """
 
-from core.type import PID, Slot, Death, Alignment, TextOption, WeaponSlotOption
+from core.type import PID, Slot, Death, Alignment, TextOption, SlotOption, WeaponSlotOption
 from core.engine import do
 from interact.interpret import run
 from helpers import interp, count_all_cards
@@ -92,7 +92,7 @@ class TestCardConservation:
         e = enemy(5)
         g.players[PID.RED].hand.slot(e)
         before = count_all_cards(g)
-        run(g, resolve_combat(PID.RED, e), interp(TextOption("Fists (5 dmg)")))
+        run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
         assert count_all_cards(g) == before
 
     def test_conservation_across_weapon_combat(self):

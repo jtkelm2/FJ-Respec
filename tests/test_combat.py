@@ -7,7 +7,7 @@ Metamorphic relation:  damage = max(0, enemy_level - sharpness)
 """
 
 import pytest
-from core.type import PID, CardType, WeaponSlot, TextOption, WeaponSlotOption
+from core.type import PID, CardType, WeaponSlot, SlotOption, WeaponSlotOption
 from interact.interpret import run
 from combat import resolve_combat, can_use_weapon
 from helpers import interp
@@ -36,21 +36,21 @@ class TestFistsCombat:
         g = create_initial_state(seed=42)
         e = enemy(enemy_lv)
         g.players[PID.RED].hand.slot(e)
-        run(g, resolve_combat(PID.RED, e), interp(TextOption(f"Fists ({enemy_lv} dmg)")))
+        run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
         assert g.players[PID.RED].hp == 20 - enemy_lv
 
     def test_fists_sends_enemy_to_discard(self):
         g = create_initial_state(seed=42)
         e = enemy(3)
         g.players[PID.RED].hand.slot(e)
-        run(g, resolve_combat(PID.RED, e), interp(TextOption("Fists (3 dmg)")))
+        run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
         assert e in g.players[PID.RED].discard.cards
 
     def test_fists_lethal_kills_player(self):
         g = create_initial_state(seed=42)
         e = enemy(20)
         g.players[PID.RED].hand.slot(e)
-        run(g, resolve_combat(PID.RED, e), interp(TextOption("Fists (20 dmg)")))
+        run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
         assert g.players[PID.RED].is_dead
 
 
@@ -107,7 +107,7 @@ class TestDamageMonotonicity:
 
             if sharp == 0:
                 # fists
-                run(g, resolve_combat(PID.RED, e), interp(TextOption(f"Fists ({enemy_lv} dmg)")))
+                run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
             else:
                 g.players[PID.RED].weapon_slots = [_armed(sharp)]
                 run(g, resolve_combat(PID.RED, e), interp(WeaponSlotOption(g.players[PID.RED].weapon_slots[0])))

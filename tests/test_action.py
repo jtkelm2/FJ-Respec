@@ -124,7 +124,7 @@ class TestResolveEnemy:
         e = enemy(5)
         g.players[PID.RED].action_field.top_distant.slot(e)
 
-        run(g, do(Resolve(PID.RED, e)), interp(TextOption(f"Fists ({e.level} dmg)")))
+        run(g, do(Resolve(PID.RED, e)), interp(SlotOption(g.players[PID.RED].discard)))
         assert g.players[PID.RED].hp == 15
         assert e in g.players[PID.RED].discard.cards
 
@@ -348,7 +348,7 @@ class TestActionPlayConsent:
 
         run(g, _action_play(PID.RED), interp(
             SlotOption(opp_slot),
-            TextOption(f"Fists ({e.level} dmg)"),
+            SlotOption(g.players[PID.RED].discard),
             blue=[TextOption("Allow")],
         ))
         assert g.players[PID.RED].hp == 20 - DISTANCE_PENALTY - 3
@@ -361,7 +361,7 @@ class TestActionPlayConsent:
 
         run(g, _action_play(PID.RED), interp(
             SlotOption(opp_slot),
-            TextOption(f"Fists ({e.level} dmg)"),
+            SlotOption(g.players[PID.RED].discard),
             blue=[TextOption("Allow")],
         ))
         assert g.players[PID.RED].hp == 20 - 3  # no distance penalty
@@ -378,7 +378,7 @@ class TestActionPlayConsent:
         run(g, _action_play(PID.RED), interp(
             SlotOption(opp_slot),
             SlotOption(own_slot),
-            TextOption(f"Fists ({e2.level} dmg)"),
+            SlotOption(g.players[PID.RED].discard),
             blue=[TextOption("Deny")],
         ))
         assert g.players[PID.RED].hp == 20 - 1  # fought e2 with fists, no penalty
@@ -575,7 +575,7 @@ class TestActionPhaseIntegration:
         run(g, action_phase(), interp(
             TextOption("None"),
             SlotOption(red_slot),
-            TextOption(f"Fists ({e.level} dmg)"),
+            SlotOption(g.players[PID.RED].discard),
         ))
         assert g.players[PID.RED].is_dead
 
@@ -805,7 +805,7 @@ class TestResolveTopOfDeck:
         g.players[PID.RED].deck.slot(e)
 
         from phase.action import _resolve_top_of_deck
-        run(g, _resolve_top_of_deck(PID.RED), interp(TextOption(f"Fists ({e.level} dmg)")))
+        run(g, _resolve_top_of_deck(PID.RED), interp(SlotOption(g.players[PID.RED].discard)))
 
         assert g.players[PID.RED].hp == 17
         assert e in g.players[PID.RED].discard.cards
@@ -862,8 +862,8 @@ class TestVoluntaryDiscard:
         slot.slot(food(1))
 
         run(g, _resolve_slot(PID.RED, slot), interp(
-            TextOption("Done"),
-            TextOption("Done"),
+            TextOption("Don't discard"),
+            TextOption("Don't discard"),
         ))
 
         assert eq in g.players[PID.RED].equipment.cards  # not discarded

@@ -331,7 +331,7 @@ class TestGameLoopIntegration:
             TextOption("Discard"), TextOption("Discard"), TextOption("Discard"), TextOption("Discard"),
             TextOption("None"),
             SlotOption(g.players[PID.RED].action_field.top_distant),
-            TextOption("Fists (20 dmg)"),
+            SlotOption(g.players[PID.RED].discard),
         ]
         blue_choices = [
             TextOption("Dump"),

@@ -90,7 +90,7 @@ class TestManipulate:
         p.hand.slot(h1)
 
         forcing = {'val': False}
-        run(g, _manipulate(PID.RED, forcing), interp(TextOption("Done"), TextOption("No")))
+        run(g, _manipulate(PID.RED, forcing), interp(TextOption("Done"), TextOption("Don't force")))
 
         assert mf1 in p.sidebar.cards
         assert mf2 in p.sidebar.cards
@@ -106,7 +106,7 @@ class TestManipulate:
         p.hand.slot(h1)
 
         forcing = {'val': False}
-        run(g, _manipulate(PID.RED, forcing), interp(CardOption(mf1), CardOption(h1), TextOption("Done"), TextOption("No")))
+        run(g, _manipulate(PID.RED, forcing), interp(CardOption(mf1), CardOption(h1), TextOption("Done"), TextOption("Don't force")))
 
         assert h1 in p.sidebar.cards
         assert mf1 in p.hand.cards
