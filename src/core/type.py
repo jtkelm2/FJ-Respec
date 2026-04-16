@@ -57,16 +57,16 @@ class Slot:
       card.slot = None
       self._cards.remove(card)
 
-  def slot(self, *cards:Card):
+  def slot(self, *cards:Card, at:int=0):
     for card in cards:
       if card.slot is not None:
          card.slot.deslot(card)
       card.slot = self
-      self._cards.insert(0, card)
+      self._cards.insert(at, card)
 
-  def draw(self) -> Card:
+  def draw(self, at:int=0) -> Card:
     assert self._cards
-    card = self._cards.pop(0)
+    card = self._cards.pop(at)
     card.slot = None
     return card
 
@@ -469,6 +469,8 @@ class Slot2Slot(Action):
    orig: Slot
    dest: Slot
    source: str = ""  # pragma: no mutate
+   source_index: int = 0
+   dest_index: int = 0
 
 @dataclass
 class Slot2SlotAll(Action):

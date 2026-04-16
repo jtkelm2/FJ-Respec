@@ -90,16 +90,16 @@ def _apply_action(action: Action) -> Effect:
                 g._event_log.append(HPChanged(target, old_hp, p.hp))
                 if p.hp <= 0:
                     yield from do(Death(target))(g)
-            case SlotCard(card, slot, source):
-                old_slot = card.slot
-                src_idx = old_slot.cards.index(card) if old_slot is not None else None
-                slot.slot(card)
-                g._event_log.append(CardMoved(card, old_slot, src_idx, slot, slot.cards.index(card)))
-            case Slot2Slot(orig, dest, source):
+            case SlotCard(card, dest, source):
+                orig = card.slot
+                assert orig is not None
+                src_idx = orig.cards.index(card)
+                yield from do(Slot2Slot(orig, dest, source, src_idx))(g)
+            case Slot2Slot(orig, dest, source, source_index, dest_index):
                 if orig.is_empty(): return
-                card = orig.draw()  # always pops index 0
-                dest.slot(card)     # always inserts at index 0
-                g._event_log.append(CardMoved(card, orig, 0, dest, 0))
+                card = orig.draw(at=source_index)
+                dest.slot(card, at=dest_index)
+                g._event_log.append(CardMoved(card, orig, source_index, dest, dest_index))
             case Slot2SlotAll(orig, dest, source):
                 count = len(orig.cards)
                 cards = list(orig.cards)

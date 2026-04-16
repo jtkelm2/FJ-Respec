@@ -56,9 +56,12 @@ def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
                     assert isinstance(chosen, CardOption)
                     hand_card = chosen.card
 
-                    # Swap: move each card to the other's slot
-                    yield from do(SlotCard(mf_card, p.hand, "manipulation swap"))(g)  # pragma: no mutate
-                    yield from do(SlotCard(hand_card, p.sidebar, "manipulation swap"))(g)  # pragma: no mutate
+                    # Swap: each card takes the other's index
+                    s_idx = p.sidebar.cards.index(mf_card)
+                    h_idx = p.hand.cards.index(hand_card)
+                    yield from do(Slot2Slot(p.sidebar, p.hand, "manipulation swap", s_idx, h_idx))(g)  # pragma: no mutate
+                    h_idx_now = p.hand.cards.index(hand_card)
+                    yield from do(Slot2Slot(p.hand, p.sidebar, "manipulation swap", h_idx_now, s_idx))(g)  # pragma: no mutate
 
         # Force option: discard equipment to choose which card to send
         equipment_cards = p.equipment.cards
