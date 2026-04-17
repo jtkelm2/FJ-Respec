@@ -1,16 +1,75 @@
 from core.type import (
-    Card, CardType, Trait, Modifier, MKind, EnemyLevel,
-    Action, Slay, Discard, Damage,
+    Card, CardType, Trait, TKind, Modifier, MKind,
+    EnemyLevel, CanRun,
+    Action, Slay, Discard, Damage, Wield, Refresh, Slot2Slot, SlotKind,
+    EnsureDeck,
+    PID, other,
     Effect, GameState, Negotiation,
 )
 from core.engine import do
 
 
+def _const(val):
+    """Modifier callback that ignores the query/base and returns a constant."""
+    def cb(_q, _v):
+        def eff(_g):
+            return val; yield  # pragma: no cover
+        return eff
+    return cb
+
+
 def enemy(level: int) -> Card:
     return Card(f"enemy_{level}", f"Enemy ({level})", "", level, (CardType.ENEMY,), False, False)  # pragma: no mutate
 
+def _make_guard(level: int) -> Card:
+    card = Card(
+        f"guard_{level}", f"Guard ({level})",  # pragma: no mutate
+        "You cannot run while this is on your field.\n"  # pragma: no mutate
+        "On kill: Refresh this.\n"  # pragma: no mutate
+        "On placement: If this has nothing beneath it, draw another card beneath this.",  # pragma: no mutate
+        level, (CardType.ENEMY,), False, False,
+    )
+    # On kill: refresh instead of killstack/discard
+    def kill_cb(a: Action) -> Effect:
+        assert isinstance(a, Slay)
+        def eff(g: GameState) -> Negotiation:
+            yield from do(Refresh(card, a.slayer, "guard"))(g)  # pragma: no mutate
+        return eff
+
+    # On placement: draw underneath if nothing beneath
+    def placement_cb(a: Action) -> Effect:
+        assert isinstance(a, Slot2Slot)
+        def eff(g: GameState) -> Negotiation:
+            dest = a.dest
+            if len(dest.cards) == 1:  # only this guard, nothing beneath
+                for pid in PID:
+                    p = g.players[pid]
+                    if dest in p.action_field.slots_in_fill_order():
+                        yield from do(EnsureDeck(pid, "guard"))(g)  # pragma: no mutate
+                        if p.is_dead: return
+                        card_idx = dest.cards.index(card)
+                        yield from do(Slot2Slot(p.deck, dest, "guard", dest_index=card_idx + 1))(g)  # pragma: no mutate
+                        return
+        return eff
+
+    card.traits = [
+        Trait.on_kill(card, kill_cb).instead(),
+        Trait.on_placement(card, placement_cb),
+    ]
+
+    # Cannot run while this is on your field
+    card.modifiers = [Modifier(
+        f"{card.display_name} (No Run)",  # pragma: no mutate
+        MKind.INTERCEPT,
+        lambda q: (isinstance(q, CanRun)
+                   and card.slot is not None
+                   and card.slot.kind == SlotKind.ACTION_FIELD
+                   and card.slot.name.startswith(q.player.name.lower())),
+        _const(0))]
+    return card
+
 def guard(level: int) -> Card:
-    return Card(f"guard_{level}", f"Guard ({level})", "", level, (CardType.ENEMY,), False, False)  # pragma: no mutate
+    return _make_guard(level)
 
 
 # enemy_1 (Gobshite) — If attacking with your fists: This is a level 22 enemy.
@@ -25,7 +84,7 @@ def enemy_1() -> Card:
         f"{card.display_name} (Fists)",  # pragma: no mutate
         MKind.INTERCEPT,
         lambda q: isinstance(q, EnemyLevel) and q.enemy is card and q.ws is None,
-        lambda q, v: 22)]
+        _const(22))]
     return card
 
 
@@ -48,6 +107,32 @@ def enemy_3() -> Card:
     return card
 
 
+# enemy_4 (Skeleton) — On placement: Draw another card underneath this.
+
+def enemy_4() -> Card:
+    card = Card(
+        "enemy_4", "Skeleton (4)",  # pragma: no mutate
+        "On placement: Draw another card underneath this.",  # pragma: no mutate
+        4, (CardType.ENEMY,), False, False,
+    )
+    def callback(a: Action) -> Effect:
+        assert isinstance(a, Slot2Slot)
+        def eff(g: GameState) -> Negotiation:
+            dest = a.dest
+            for pid in PID:
+                p = g.players[pid]
+                if dest in p.action_field.slots_in_fill_order():
+                    from core.type import EnsureDeck
+                    yield from do(EnsureDeck(pid, "Skeleton"))(g)  # pragma: no mutate
+                    if p.is_dead: return
+                    card_idx = dest.cards.index(card)
+                    yield from do(Slot2Slot(p.deck, dest, "Skeleton", dest_index=card_idx + 1))(g)  # pragma: no mutate
+                    return
+        return eff
+    card.traits = [Trait.on_placement(card, callback)]
+    return card
+
+
 # enemy_7 — If you kill this with a weapon: Discard your weapon.
 
 def enemy_7() -> Card:
@@ -64,6 +149,23 @@ def enemy_7() -> Card:
                 yield from do(Discard(a.slayer, a.ws.weapon, "enemy_7"))(g)  # pragma: no mutate
             for c in list(a.ws.killstack.cards):
                 yield from do(Discard(a.slayer, c, "enemy_7 kill pile"))(g)  # pragma: no mutate
+        return eff
+    card.traits = [Trait.on_kill(card, callback)]
+    return card
+
+
+# enemy_8 (Lonely Ogre) — On kill: Wield this as a weapon.
+
+def enemy_8() -> Card:
+    card = Card(
+        "enemy_8", "Lonely Ogre (8)",  # pragma: no mutate
+        "On kill: Wield this as a weapon.",  # pragma: no mutate
+        8, (CardType.ENEMY,), False, False,
+    )
+    def callback(a: Action) -> Effect:
+        assert isinstance(a, Slay)
+        def eff(g: GameState) -> Negotiation:
+            yield from do(Wield(a.slayer, card, "Lonely Ogre"))(g)  # pragma: no mutate
         return eff
     card.traits = [Trait.on_kill(card, callback)]
     return card

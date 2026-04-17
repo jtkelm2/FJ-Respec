@@ -53,11 +53,11 @@ class TestSetupRoleAssignment:
     def test_blue_gets_second_role_not_third(self):
         """Kills mutant: roles[1] -> roles[2].
 
-        The 3-role pool is [good, good, evil]. After shuffle with seed=42,
+        The 3-role pool is [good, good, evil]. After shuffle with seed=44,
         assert BLUE's specific alignment. The mutant changes which role
         index BLUE gets, which (for 2/3 of seeds) changes the alignment.
         """
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=44)
         assert g.players[PID.BLUE].alignment == Alignment.GOOD
 
 

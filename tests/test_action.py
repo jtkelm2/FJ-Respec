@@ -16,8 +16,8 @@ from phase.action import (
     action_phase, _resolve_slot,
     _legal_slot_choices, _action_play,
     _offer_last_resort, _run, _call_guards, _find_role_card,
-    DISTANCE_PENALTY,
 )
+DISTANCE_PENALTY = 3
 from phase.setup import create_initial_state
 from helpers import interp, minimal_game, count_all_cards
 

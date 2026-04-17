@@ -113,8 +113,14 @@ class Serializer:
         p_pre = pid.name.lower()
         o_pre = opp.name.lower()
 
-        def _cards(cards: list[Card]) -> list[str]:
-            return [c.name for c in cards]
+        def _cards(cards: list[Card]) -> list[dict]:
+            result = []
+            for i, c in enumerate(cards):
+                entry: dict = {"name": c.name}  # pragma: no mutate
+                if i == 0 and c.counters > 0:
+                    entry["counters"] = c.counters
+                result.append(entry)
+            return result
 
         slots: dict[str, list[str] | int] = {}
 

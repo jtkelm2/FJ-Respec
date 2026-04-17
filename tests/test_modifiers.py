@@ -17,6 +17,15 @@ from cards import weapon, enemy, the_emperor, food
 from cards.enemies import enemy_1
 
 
+def _val(fn):
+    """Wrap a simple (q, v) -> int function as a TypedEffect[int] modifier callback."""
+    def cb(q, v):
+        def eff(_g):
+            return fn(q, v); yield  # pragma: no cover
+        return eff
+    return cb
+
+
 # --- query() basics -------------------------------------------------------
 
 class TestQueryBase:
@@ -57,7 +66,7 @@ class TestMutateModifier:
         g.active_modifiers.append(
             Modifier("bonus", MKind.MUTATE,
                      lambda q: isinstance(q, Sharpness),
-                     lambda q, v: v + 2))
+                     _val(lambda q, v: v + 2)))
 
         result = [None]
         def eff(g):
@@ -73,11 +82,11 @@ class TestMutateModifier:
         g.active_modifiers.append(
             Modifier("plus1", MKind.MUTATE,
                      lambda q: isinstance(q, Sharpness),
-                     lambda q, v: v + 1))
+                     _val(lambda q, v: v + 1)))
         g.active_modifiers.append(
             Modifier("plus2", MKind.MUTATE,
                      lambda q: isinstance(q, Sharpness),
-                     lambda q, v: v + 2))
+                     _val(lambda q, v: v + 2)))
 
         result = [None]
         def eff(g):
@@ -93,7 +102,7 @@ class TestMutateModifier:
         g.active_modifiers.append(
             Modifier("wrong", MKind.MUTATE,
                      lambda q: isinstance(q, EnemyLevel),
-                     lambda q, v: v + 99))
+                     _val(lambda q, v: v + 99)))
 
         result = [None]
         def eff(g):
@@ -114,7 +123,7 @@ class TestInterceptModifier:
         g.active_modifiers.append(
             Modifier("override", MKind.INTERCEPT,
                      lambda q: isinstance(q, EnemyLevel) and q.enemy is en,
-                     lambda q, v: 99))
+                     _val(lambda q, v: 99)))
 
         result = [None]
         def eff(g):
@@ -131,11 +140,11 @@ class TestInterceptModifier:
         g.active_modifiers.append(
             Modifier("intercept", MKind.INTERCEPT,
                      lambda q: isinstance(q, EnemyLevel),
-                     lambda q, v: 50))
+                     _val(lambda q, v: 50)))
         g.active_modifiers.append(
             Modifier("mutate", MKind.MUTATE,
                      lambda q: isinstance(q, EnemyLevel),
-                     lambda q, v: v + 100))
+                     _val(lambda q, v: v + 100)))
 
         result = [None]
         def eff(g):
@@ -151,11 +160,11 @@ class TestInterceptModifier:
         g.active_modifiers.append(
             Modifier("alpha", MKind.INTERCEPT,
                      lambda q: isinstance(q, EnemyLevel),
-                     lambda q, v: 10))
+                     _val(lambda q, v: 10)))
         g.active_modifiers.append(
             Modifier("beta", MKind.INTERCEPT,
                      lambda q: isinstance(q, EnemyLevel),
-                     lambda q, v: 20))
+                     _val(lambda q, v: 20)))
 
         result = [None]
         def eff(g):

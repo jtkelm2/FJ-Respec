@@ -17,9 +17,10 @@ class Card:
   text: str
   level: int | None
   types: tuple[CardType, ...]
-  is_elusive: bool
-  is_first: bool
+  is_elusive: bool = False
+  is_first: bool = False
   slot: "Slot | None" = None
+  counters: int = 0
   traits: "list[Trait]" = field(default_factory=list)
   modifiers: "list[Modifier]" = field(default_factory=list)
 
@@ -409,8 +410,11 @@ class GameState:
         return GameResult(tuple(pid for pid in PID if good[pid]), Outcome.EVIL_THWARTED)
 
 # An effect is a "negotiated" GameState
-Negotiation = Generator[Prompt, Response, None]
-Effect = Callable[[GameState], Negotiation]
+type Negotiation = Generator[Prompt, Response, None]
+type Effect = Callable[[GameState], Negotiation]
+
+type TypedNegotiation[T] = Generator[Prompt, Response, T]
+type TypedEffect[T] = Callable[[GameState], TypedNegotiation[T]]
 
 ############# Actions ########
 
@@ -560,6 +564,42 @@ class GameOver(Action):
   source: str = ""  # pragma: no mutate
 
 @dataclass
+class SetCounters(Action):
+  card: Card
+  value: int
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class AddCounter(Action):
+  card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class RemoveCounter(Action):
+  card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class ClearCounters(Action):
+  card: Card
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class DecrementActionPlays(Action):
+  player: PID
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class EndActionPhase(Action):
+  player: PID
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class DistancePenalty(Action):
+  player: PID
+  source: str = ""  # pragma: no mutate
+
+@dataclass
 class FlipPriority(Action):
   source: str = ""  # pragma: no mutate
 
@@ -624,6 +664,13 @@ class Trait:
                      callback)
 
     @staticmethod
+    def slays_enemy(card: Card, kind: TKind,
+                    callback: Callable[[Action], Effect]):
+        return Trait.as_a_weapon(card, kind,
+                     lambda a: isinstance(a, Slay) and a.ws is not None,
+                     callback)
+
+    @staticmethod
     def on_placement(card: Card,
                      callback: Callable[[Action], Effect]):
         return Trait(f"{card.display_name} (On Placement)", TKind.AFTER,  # pragma: no mutate
@@ -675,6 +722,14 @@ class EnemyLevel(Query):
         assert self.enemy.level is not None
         return self.enemy.level
 
+@dataclass
+class CanRun(Query):
+    player: PID
+
+    @property
+    def base(self) -> int:
+        return 1
+
 QueryResult = Generator[Prompt, Response, int]
 
 class MKind(Enum):
@@ -686,12 +741,12 @@ class Modifier:
     name: str
     kind: MKind
     applies: Callable[[Query], bool]
-    callback: Callable[[Query, int], int]
+    callback: Callable[[Query, int], TypedEffect[int]]
 
     @staticmethod
     def while_equipped(card: Card,
                        applies: Callable[[Query], bool],
-                       callback: Callable[[Query, int], int]):
+                       callback: Callable[[Query, int], TypedEffect[int]]):
         inner = applies
         return Modifier(
             f"{card.display_name} (While Equipped)",  # pragma: no mutate
@@ -704,7 +759,7 @@ class Modifier:
     @staticmethod
     def as_a_weapon(card: Card,
                     applies: Callable[[Query], bool],
-                    callback: Callable[[Query, int], int]):
+                    callback: Callable[[Query, int], TypedEffect[int]]):
         inner = applies
         return Modifier(
             f"{card.display_name} (As A Weapon)",  # pragma: no mutate

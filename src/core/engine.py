@@ -70,8 +70,10 @@ def _apply_action(action: Action) -> Effect:
                 p.is_dead = True
                 g._event_log.append(PlayerDied(target))
             case Refresh(card, player, source):
+                yield from do(ClearCounters(card, "refresh"))(g)  # pragma: no mutate
                 yield from do(SlotCard(card, g.players[player].refresh, "refresh"))(g)  # pragma: no mutate
             case Discard(discarder, card, source):
+                yield from do(ClearCounters(card, "discard"))(g)  # pragma: no mutate
                 yield from do(SlotCard(card, g.players[discarder].discard, "discard"))(g)  # pragma: no mutate
             case Slay(slayer, enemy, ws, source):
                 if ws is None:
@@ -209,6 +211,20 @@ def _apply_action(action: Action) -> Effect:
             case GameOver(result):
                 g.game_result = result
                 g._event_log.append(GameEnded(result))
+            case SetCounters(card, value, source):
+                card.counters = value
+            case AddCounter(card, source):
+                yield from do(SetCounters(card, card.counters + 1, source))(g)  # pragma: no mutate
+            case RemoveCounter(card, source):
+                yield from do(SetCounters(card, max(0, card.counters - 1), source))(g)  # pragma: no mutate
+            case ClearCounters(card, source):
+                yield from do(SetCounters(card, 0, source))(g)  # pragma: no mutate
+            case EndActionPhase(player, source):
+                g.players[player].action_plays_left = 0
+            case DecrementActionPlays(player, source):
+                g.players[player].action_plays_left = max(0, g.players[player].action_plays_left - 1)
+            case DistancePenalty(player, source):
+                yield from do(Damage(player, 3, "distance penalty"))(g)  # pragma: no mutate
             case FlipPriority():
                 g.priority = other(g.priority)
             case _:  # pragma: no mutate
@@ -283,7 +299,7 @@ def query(g: GameState, q: Query) -> QueryResult:
                 case TextOption(name):
                     chosen = next(m for m in intercepts if m.name == name)
                 case _: raise ValueError(f"Unexpected response: {response[pid]}")  # pragma: no mutate
-        return chosen.callback(q, value)
+        return (yield from chosen.callback(q, value)(g))
 
     mutates = [m for m in modifiers if m.kind == MKind.MUTATE]
     if len(mutates) > 1:
@@ -299,7 +315,7 @@ def query(g: GameState, q: Query) -> QueryResult:
             case _: raise ValueError(f"Unexpected response: {response[pid]}")  # pragma: no mutate
 
     for m in mutates:
-        value = m.callback(q, value)
+        value = yield from m.callback(q, value)(g)
 
     return value
 

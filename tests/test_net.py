@@ -110,8 +110,8 @@ class TestSerialization:
         catalog_names = set(catalog["cards"].keys())
         for slot_val in serialized["slots"].values():
             if isinstance(slot_val, list):
-                for name in slot_val:
-                    assert name in catalog_names
+                for entry in slot_val:
+                    assert entry["name"] in catalog_names
 
     def test_catalog_slots_keyed_by_wire_name(self):
         """Catalog slots are flat: {wire_name: {owner, role}}."""

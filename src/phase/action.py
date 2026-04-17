@@ -1,7 +1,5 @@
 from core.type import *
-from core.engine import do
-
-DISTANCE_PENALTY = 3
+from core.engine import do, query
 
 
 def action_phase() -> Effect:
@@ -37,7 +35,7 @@ def action_phase() -> Effect:
                     return
 
             yield from _action_play(current)(g)
-            p.action_plays_left -= 1
+            yield from do(DecrementActionPlays(current, "action play"))(g)  # pragma: no mutate
             p.first_play_done = True
 
             if g.is_over or any(g.players[pid].is_dead for pid in PID):
@@ -62,7 +60,7 @@ def _offer_last_resort(pid: PID) -> Effect:
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
 
-        can_run = True
+        can_run = bool((yield from query(g, CanRun(pid))))
         can_call_guards = (
             p.alignment == Alignment.GOOD
             and _find_role_card(p) is not None
@@ -232,7 +230,7 @@ def _action_play(pid: PID) -> Effect:
                     continue  # denied → re-pick
 
                 if is_dist:
-                    yield from do(Damage(pid, DISTANCE_PENALTY, "distance penalty"))(g)  # pragma: no mutate
+                    yield from do(DistancePenalty(pid, "distance penalty"))(g)  # pragma: no mutate
                     if p.is_dead:
                         return
 
