@@ -261,3 +261,71 @@ def _get_triggers(g: GameState, action: Action) -> list[Trait]:
         traits.append(trait)
 
     return [trait for trait in traits if trait.applies(action)]
+
+
+################## Queries #########
+
+def query(g: GameState, q: Query) -> QueryResult:
+    value = q.base
+    modifiers = _get_modifiers(g, q)
+
+    intercepts = [m for m in modifiers if m.kind == MKind.INTERCEPT]
+    if intercepts:
+        if len(intercepts) == 1:
+            chosen = intercepts[0]
+        else:
+            pid = g.priority
+            pb = PromptBuilder(f"Choose modifier for {q}:")  # pragma: no mutate
+            for m in intercepts:
+                pb.add(TextOption(m.name))
+            response = yield pb.build(pid)
+            match response[pid]:
+                case TextOption(name):
+                    chosen = next(m for m in intercepts if m.name == name)
+                case _: raise ValueError(f"Unexpected response: {response[pid]}")  # pragma: no mutate
+        return chosen.callback(q, value)
+
+    mutates = [m for m in modifiers if m.kind == MKind.MUTATE]
+    if len(mutates) > 1:
+        pid = g.priority
+        pb = PromptBuilder(f"Order modifiers for {q}:")  # pragma: no mutate
+        for m in mutates:
+            pb.add(TextOption(m.name))
+        response = yield pb.build(pid)
+        match response[pid]:
+            case TextOption(name):
+                idx = next(i for i, m in enumerate(mutates) if m.name == name)
+                mutates.insert(0, mutates.pop(idx))
+            case _: raise ValueError(f"Unexpected response: {response[pid]}")  # pragma: no mutate
+
+    for m in mutates:
+        value = m.callback(q, value)
+
+    return value
+
+def _get_modifiers(g: GameState, q: Query) -> list[Modifier]:
+    mods: list[Modifier] = []
+
+    for pid in PID:
+        p = g.players[pid]
+        for slot in [p.equipment, p.discard, p.hand, p.sidebar,
+                     *p.action_field.slots_in_fill_order()]:
+            for card in slot.cards:
+                for mod in card.modifiers:
+                    if mod.applies(q):
+                        mods.append(mod)
+        for ws in p.weapon_slots:
+            if ws.weapon is not None:
+                for mod in ws.weapon.modifiers:
+                    if mod.applies(q):
+                        mods.append(mod)
+            for card in ws.killstack.cards:
+                for mod in card.modifiers:
+                    if mod.applies(q):
+                        mods.append(mod)
+
+    for mod in g.active_modifiers:
+        if mod.applies(q):
+            mods.append(mod)
+
+    return mods

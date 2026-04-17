@@ -1,5 +1,5 @@
 from core.type import *
-from core.engine import do
+from core.engine import do, query
 
 # --- Weapon usability ---
 
@@ -40,11 +40,12 @@ def resolve_combat(resolver: PID, enemy: Card) -> Effect:
                 sharpness = 0
             case WeaponSlotOption(weapon_slot):
                 ws = weapon_slot
-                sharpness = ws.sharpness()
+                sharpness = yield from query(g, Sharpness(ws, resolver))
             case _:
                 raise ValueError(f"Unexpected response: {r[resolver]}")
 
-        dmg = max(0, enemy_level - sharpness)
+        actual_level = yield from query(g, EnemyLevel(enemy, ws))
+        dmg = max(0, actual_level - sharpness)
         yield from do(Damage(resolver, dmg, "combat"))(g)  # pragma: no mutate
         yield from do(Slay(resolver, enemy, ws, "ordinary combat"))(g)  # pragma: no mutate
     return effect

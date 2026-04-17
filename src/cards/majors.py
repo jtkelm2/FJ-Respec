@@ -2,6 +2,7 @@ from core.type import (
     Card, CardType, Trait, TKind, PID, other, Phase, Alignment,
     Action, Resolve, Damage, Heal, Refresh, SetHP, Discard,
     EnsureDeck, Slot2Slot, EndPhase, TransferHP,
+    Modifier, Sharpness,
     Effect, GameState, Negotiation,
     PromptBuilder, TextOption, CardOption,
 )
@@ -51,6 +52,24 @@ def the_empress() -> Card:
     card.traits = [Trait.while_equipped(card, TKind.AFTER,
         lambda a: isinstance(a, EndPhase) and a.phase == Phase.REFRESH,
         callback)]
+    return card
+
+
+# --- The Emperor (major_4) ------------------------------------------------
+# While equipped: Add +1 to your weapons level.
+
+def _card_belongs_to(card: Card, pid: PID) -> bool:
+    return card.slot is not None and card.slot.name.startswith(pid.name.lower())
+
+def the_emperor() -> Card:
+    card = Card(
+        "major_4", "The Emperor",  # pragma: no mutate
+        "While equipped: Add +1 to your weapons level.",  # pragma: no mutate
+        None, (CardType.EQUIPMENT,), False, False,
+    )
+    card.modifiers = [Modifier.while_equipped(card,
+        lambda q: isinstance(q, Sharpness) and _card_belongs_to(card, q.player),
+        lambda q, v: v + 1)]
     return card
 
 

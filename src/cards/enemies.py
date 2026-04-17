@@ -1,5 +1,5 @@
 from core.type import (
-    Card, CardType, Trait,
+    Card, CardType, Trait, Modifier, MKind, EnemyLevel,
     Action, Slay, Discard, Damage,
     Effect, GameState, Negotiation,
 )
@@ -11,6 +11,22 @@ def enemy(level: int) -> Card:
 
 def guard(level: int) -> Card:
     return Card(f"guard_{level}", f"Guard ({level})", "", level, (CardType.ENEMY,), False, False)  # pragma: no mutate
+
+
+# enemy_1 (Gobshite) — If attacking with your fists: This is a level 22 enemy.
+
+def enemy_1() -> Card:
+    card = Card(
+        "enemy_1", "Gobshite (1)",  # pragma: no mutate
+        "If attacking with your fists: This is a level 22 enemy.",  # pragma: no mutate
+        1, (CardType.ENEMY,), False, False,
+    )
+    card.modifiers = [Modifier(
+        f"{card.display_name} (Fists)",  # pragma: no mutate
+        MKind.INTERCEPT,
+        lambda q: isinstance(q, EnemyLevel) and q.enemy is card and q.ws is None,
+        lambda q, v: 22)]
+    return card
 
 
 # enemy_3 — If you kill this with a weapon: Discard this and your kill pile.

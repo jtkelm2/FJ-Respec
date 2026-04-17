@@ -21,6 +21,7 @@ class Card:
   is_first: bool
   slot: "Slot | None" = None
   traits: "list[Trait]" = field(default_factory=list)
+  modifiers: "list[Modifier]" = field(default_factory=list)
 
   def is_type(self,typ:CardType) -> bool:
     return typ in list(self.types)
@@ -342,6 +343,7 @@ class GameState:
     action_field: ActionField = field(default_factory=lambda: ActionField("shared"))
 
     active_traits: "list[Trait]" = field(default_factory=list)
+    active_modifiers: "list[Modifier]" = field(default_factory=list)
 
     # Event log — drained by the interaction layer between state pushes
     _event_log: list["Event"] = field(default_factory=list)
@@ -644,6 +646,73 @@ class Trait:
                      lambda a: isinstance(a, Discard) and a.card is card,
                      callback)
 
+
+
+############ Queries & Modifiers ##############################
+
+@dataclass
+class Query:
+    @property
+    def base(self) -> int:
+        raise NotImplementedError  # pragma: no mutate
+
+@dataclass
+class Sharpness(Query):
+    ws: WeaponSlot
+    player: PID
+
+    @property
+    def base(self) -> int:
+        return self.ws.sharpness()
+
+@dataclass
+class EnemyLevel(Query):
+    enemy: Card
+    ws: WeaponSlot | None
+
+    @property
+    def base(self) -> int:
+        assert self.enemy.level is not None
+        return self.enemy.level
+
+QueryResult = Generator[Prompt, Response, int]
+
+class MKind(Enum):
+    INTERCEPT = auto()
+    MUTATE = auto()
+
+@dataclass
+class Modifier:
+    name: str
+    kind: MKind
+    applies: Callable[[Query], bool]
+    callback: Callable[[Query, int], int]
+
+    @staticmethod
+    def while_equipped(card: Card,
+                       applies: Callable[[Query], bool],
+                       callback: Callable[[Query, int], int]):
+        inner = applies
+        return Modifier(
+            f"{card.display_name} (While Equipped)",  # pragma: no mutate
+            MKind.MUTATE,
+            lambda q: (card.slot is not None
+                       and card.slot.kind == SlotKind.EQUIPMENT
+                       and inner(q)),
+            callback)
+
+    @staticmethod
+    def as_a_weapon(card: Card,
+                    applies: Callable[[Query], bool],
+                    callback: Callable[[Query, int], int]):
+        inner = applies
+        return Modifier(
+            f"{card.display_name} (As A Weapon)",  # pragma: no mutate
+            MKind.MUTATE,
+            lambda q: (card.slot is not None
+                       and card.slot.kind == SlotKind.WEAPON
+                       and inner(q)),
+            callback)
 
 
 ############# Events ########
