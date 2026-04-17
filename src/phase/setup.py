@@ -1,13 +1,14 @@
 import random
 from core.type import *
-from cards import *
+from cards import role_card
+from cards.deck import player_deck, guard_deck
 
 def create_initial_state(seed: int | None = None) -> GameState:
     rng = random.Random(seed)  # pragma: no mutate
 
-    red_deck  = _player_deck()
-    blue_deck = _player_deck()
-    guards    = _guard_deck()
+    red_deck  = player_deck()
+    blue_deck = player_deck()
+    guards    = guard_deck()
 
     rng.shuffle(red_deck)
     rng.shuffle(blue_deck)
@@ -38,16 +39,3 @@ def create_initial_state(seed: int | None = None) -> GameState:
         guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK, guards),  # pragma: no mutate
         action_field=ActionField("shared"),
     )
-
-
-def _player_deck() -> list[Card]:
-    deck: list[Card] = []
-    for lv in range(1, 11):  deck.append(food(lv))  # pragma: no mutate
-    for lv in range(1, 11):  deck.append(weapon(lv))  # pragma: no mutate
-    for lv in range(1, 15):  # pragma: no mutate
-        deck.append(enemy(lv))  # pragma: no mutate
-        deck.append(enemy(lv))  # pragma: no mutate
-    return deck
-
-def _guard_deck() -> list[Card]:
-    return [guard(lv) for lv in [8, 9, 10, 11] for _ in range(4)]  # pragma: no mutate

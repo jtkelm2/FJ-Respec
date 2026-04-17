@@ -580,51 +580,51 @@ class Trait:
       return self
 
     @staticmethod
-    def on_resolve(name: str, card: Card, callback: Callable[[Action], Effect]):
-        return Trait(name, TKind.BEFORE,
+    def on_resolve(card: Card, callback: Callable[[Action], Effect]):
+        return Trait(f"{card.display_name} (On Resolve)", TKind.BEFORE,  # pragma: no mutate
                      lambda a: isinstance(a, Resolve) and a.card is card,
                      callback)
 
     @staticmethod
-    def while_equipped(name: str, card: Card, kind: TKind,
+    def while_equipped(card: Card, kind: TKind,
                        applies: Callable[[Action], bool],
                        callback: Callable[[Action], Effect]):
         inner = applies
-        return Trait(name, kind,
+        return Trait(f"{card.display_name} (While Equipped)", kind,  # pragma: no mutate
                      lambda a: card.slot is not None
                                and card.slot.kind == SlotKind.EQUIPMENT
                                and inner(a),
                      callback)
 
     @staticmethod
-    def as_a_weapon(name: str, card: Card, kind: TKind,
+    def as_a_weapon(card: Card, kind: TKind,
                     applies: Callable[[Action], bool],
                     callback: Callable[[Action], Effect]):
         inner = applies
-        return Trait(name, kind,
+        return Trait(f"{card.display_name} (As A Weapon)", kind,  # pragma: no mutate
                      lambda a: card.slot is not None
                                and card.slot.kind == SlotKind.WEAPON
                                and inner(a),
                      callback)
 
     @staticmethod
-    def on_discard(name: str, card: Card,
+    def on_discard(card: Card,
                    callback: Callable[[Action], Effect]):
-        return Trait(name, TKind.AFTER,
+        return Trait(f"{card.display_name} (On Discard)", TKind.AFTER,  # pragma: no mutate
                      lambda a: isinstance(a, Discard) and a.card is card,
                      callback)
 
     @staticmethod
-    def on_kill(name: str, card: Card,
+    def on_kill(card: Card,
                 callback: Callable[[Action], Effect]):
-        return Trait(name, TKind.AFTER,
+        return Trait(f"{card.display_name} (On Kill)", TKind.AFTER,  # pragma: no mutate
                      lambda a: isinstance(a, Slay) and a.enemy is card,
                      callback)
 
     @staticmethod
-    def on_placement(name: str, card: Card,
+    def on_placement(card: Card,
                      callback: Callable[[Action], Effect]):
-        return Trait(name, TKind.AFTER,
+        return Trait(f"{card.display_name} (On Placement)", TKind.AFTER,  # pragma: no mutate
                      lambda a: (isinstance(a, Slot2Slot)
                                 and a.dest.kind == SlotKind.ACTION_FIELD
                                 and len(a.dest.cards) > a.dest_index
@@ -632,7 +632,7 @@ class Trait:
                      callback)
 
     @staticmethod
-    def after_death(name: str, card: Card,
+    def after_death(card: Card,
                     permanent_trait: "Trait"):
         def callback(a: Action) -> Effect:
             def eff(g: GameState) -> Negotiation:
@@ -640,7 +640,7 @@ class Trait:
                 return
                 yield  # pragma: no cover
             return eff
-        return Trait(name, TKind.AFTER,
+        return Trait(f"{card.display_name} (After Death)", TKind.AFTER,  # pragma: no mutate
                      lambda a: isinstance(a, Discard) and a.card is card,
                      callback)
 

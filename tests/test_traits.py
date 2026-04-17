@@ -183,7 +183,7 @@ class TestWhileEquippedKeyword:
         log = []
         c = Card("synth_eq", "SynthEq", "", None, (CardType.EQUIPMENT,),
                  False, False)
-        c.traits = [Trait.while_equipped("t", c, TKind.AFTER,
+        c.traits = [Trait.while_equipped(c, TKind.AFTER,
             lambda a: isinstance(a, Heal) and a.target == PID.RED,
             _log_cb(log, "fired"))]
         g.players[PID.RED].equipment.slot(c)
@@ -198,7 +198,7 @@ class TestWhileEquippedKeyword:
         log = []
         c = Card("synth_eq", "SynthEq", "", None, (CardType.EQUIPMENT,),
                  False, False)
-        c.traits = [Trait.while_equipped("t", c, TKind.AFTER,
+        c.traits = [Trait.while_equipped(c, TKind.AFTER,
             lambda a: isinstance(a, Heal) and a.target == PID.RED,
             _log_cb(log, "fired"))]
         g.players[PID.RED].discard.slot(c)
@@ -213,7 +213,7 @@ class TestWhileEquippedKeyword:
         log = []
         c = Card("synth_eq", "SynthEq", "", None, (CardType.EQUIPMENT,),
                  False, False)
-        c.traits = [Trait.while_equipped("t", c, TKind.AFTER,
+        c.traits = [Trait.while_equipped(c, TKind.AFTER,
             lambda a: isinstance(a, Heal),
             _log_cb(log, "fired"))]
         g.players[PID.RED].action_field.top_distant.slot(c)
@@ -250,7 +250,7 @@ class TestAsAWeaponKeyword:
         g = minimal_game()
         log = []
         c = Card("synth_w", "SynthW", "", 1, (CardType.WEAPON,), False, False)
-        c.traits = [Trait.as_a_weapon("t", c, TKind.AFTER,
+        c.traits = [Trait.as_a_weapon(c, TKind.AFTER,
             lambda a: isinstance(a, Heal) and a.target == PID.RED,
             _log_cb(log, "fired"))]
         g.players[PID.RED].weapon_slots[0].wield(c)
@@ -265,7 +265,7 @@ class TestAsAWeaponKeyword:
         log = []
         c = Card("synth_w", "SynthW", "", None, (CardType.EQUIPMENT,),
                  False, False)
-        c.traits = [Trait.as_a_weapon("t", c, TKind.AFTER,
+        c.traits = [Trait.as_a_weapon(c, TKind.AFTER,
             lambda a: isinstance(a, Heal) and a.target == PID.RED,
             _log_cb(log, "fired"))]
         g.players[PID.RED].equipment.slot(c)
@@ -285,7 +285,7 @@ class TestOnDiscardKeyword:
         log = []
         c = Card("synth_d", "SynthD", "", None, (CardType.EQUIPMENT,),
                  False, False)
-        c.traits = [Trait.on_discard("t", c, _log_cb(log, "fired"))]
+        c.traits = [Trait.on_discard(c, _log_cb(log, "fired"))]
         g.players[PID.RED].equipment.slot(c)
 
         run(g, do(Discard(PID.RED, c, "test")), interp())
@@ -300,7 +300,7 @@ class TestOnDiscardKeyword:
                  False, False)
         other_c = Card("other", "Other", "", None, (CardType.EQUIPMENT,),
                        False, False)
-        c.traits = [Trait.on_discard("t", c, _log_cb(log, "fired"))]
+        c.traits = [Trait.on_discard(c, _log_cb(log, "fired"))]
         g.players[PID.RED].equipment.slot(c)
         g.players[PID.RED].hand.slot(other_c)
 
@@ -317,7 +317,7 @@ class TestOnKillKeyword:
         g = minimal_game()
         log = []
         en = Card("synth_e", "SynthE", "", 3, (CardType.ENEMY,), False, False)
-        en.traits = [Trait.on_kill("t", en, _log_cb(log, "fired"))]
+        en.traits = [Trait.on_kill(en, _log_cb(log, "fired"))]
         g.players[PID.RED].action_field.top_distant.slot(en)
         ws = g.players[PID.RED].weapon_slots[0]
 
@@ -329,7 +329,7 @@ class TestOnKillKeyword:
         g = minimal_game()
         log = []
         en = Card("synth_e", "SynthE", "", 3, (CardType.ENEMY,), False, False)
-        en.traits = [Trait.on_kill("t", en, _log_cb(log, "fired"))]
+        en.traits = [Trait.on_kill(en, _log_cb(log, "fired"))]
         g.players[PID.RED].action_field.top_distant.slot(en)
 
         run(g, do(Slay(PID.RED, en, None, "test")), interp())
@@ -346,7 +346,7 @@ class TestOnPlacementKeyword:
         log = []
         af_slot = g.players[PID.RED].action_field.top_distant
         c = Card("synth_p", "SynthP", "", 1, (CardType.ENEMY,), False, False)
-        c.traits = [Trait.on_placement("t", c, _log_cb(log, "fired"))]
+        c.traits = [Trait.on_placement(c, _log_cb(log, "fired"))]
         g.players[PID.RED].deck.slot(c)
 
         run(g, do(Slot2Slot(g.players[PID.RED].deck, af_slot, "test")), interp())
@@ -364,7 +364,7 @@ class TestAfterDeathKeyword:
         permanent = _logging_trait("perm", TKind.AFTER,
             lambda a: isinstance(a, Heal), log, "permanent_fired")
         en = Card("synth_ad", "SynthAd", "", 5, (CardType.ENEMY,), False, False)
-        en.traits = [Trait.after_death("t", en, permanent)]
+        en.traits = [Trait.after_death(en, permanent)]
         g.players[PID.RED].action_field.top_distant.slot(en)
 
         assert len(g.active_traits) == 0
@@ -380,7 +380,7 @@ class TestAfterDeathKeyword:
         permanent = _logging_trait("perm", TKind.AFTER,
             lambda a: True, [], "should_not_fire")
         en = Card("synth_ad", "SynthAd", "", 1, (CardType.ENEMY,), False, False)
-        en.traits = [Trait.after_death("t", en, permanent)]
+        en.traits = [Trait.after_death(en, permanent)]
         g.players[PID.RED].action_field.top_distant.slot(en)
         g.players[PID.RED].hp = 10
 
@@ -398,9 +398,9 @@ class TestMultiTraitContinueNotBreak:
         log = []
         c = Card("synth_multi", "SynthMulti", "", None, (CardType.EVENT,),
                  False, False)
-        t_eq = Trait.while_equipped("eq", c, TKind.AFTER,
+        t_eq = Trait.while_equipped(c, TKind.AFTER,
             lambda a: True, _log_cb(log, "eq_fired"))
-        t_resolve = Trait.on_resolve("resolve", c, _log_cb(log, "resolve_fired"))
+        t_resolve = Trait.on_resolve(c, _log_cb(log, "resolve_fired"))
         c.traits = [t_eq, t_resolve]
         g.players[PID.RED].action_field.top_distant.slot(c)
 
