@@ -20,6 +20,7 @@ class Card:
   is_elusive: bool
   is_first: bool
   slot: "Slot | None" = None
+  traits: "list[Trait]" = field(default_factory=list)
 
   def is_type(self,typ:CardType) -> bool:
     return typ in list(self.types)
@@ -33,12 +34,26 @@ def other(pid:PID) -> PID:
     case PID.RED:  return PID.BLUE
     case PID.BLUE: return PID.RED
      
+class SlotKind(Enum):
+  DECK = auto()
+  REFRESH = auto()
+  DISCARD = auto()
+  HAND = auto()
+  SIDEBAR = auto()
+  EQUIPMENT = auto()
+  WEAPON = auto()
+  KILLSTACK = auto()
+  ACTION_FIELD = auto()
+  GUARD_DECK = auto()
+
 class Slot:
   name: str
+  kind: SlotKind
   _cards: list[Card]
 
-  def __init__(self, name: str, cards: list[Card] | None = None):
+  def __init__(self, name: str, kind: SlotKind, cards: list[Card] | None = None):
     self.name = name
+    self.kind = kind
     self._cards = []
     if cards is not None: self.slot(*cards)
   
@@ -83,8 +98,8 @@ class WeaponSlot:
 
   def __init__(self, name: str):
     self.name = name
-    self._weapon_slot = Slot(f"{name}_weapon")
-    self.killstack = Slot(f"{name}_killstack")
+    self._weapon_slot = Slot(f"{name}_weapon", SlotKind.WEAPON)
+    self.killstack = Slot(f"{name}_killstack", SlotKind.KILLSTACK)
 
   @property
   def weapon(self) -> Card | None:
@@ -238,10 +253,10 @@ class ActionField:
     bottom_hidden: Slot
 
     def __init__(self, prefix: str):
-      self.top_distant = Slot(f"{prefix}_action_field_top_distant")
-      self.bottom_distant = Slot(f"{prefix}_action_field_bottom_distant")
-      self.top_hidden = Slot(f"{prefix}_action_field_top_hidden")
-      self.bottom_hidden = Slot(f"{prefix}_action_field_bottom_hidden")
+      self.top_distant = Slot(f"{prefix}_action_field_top_distant", SlotKind.ACTION_FIELD)
+      self.bottom_distant = Slot(f"{prefix}_action_field_bottom_distant", SlotKind.ACTION_FIELD)
+      self.top_hidden = Slot(f"{prefix}_action_field_top_hidden", SlotKind.ACTION_FIELD)
+      self.bottom_hidden = Slot(f"{prefix}_action_field_bottom_hidden", SlotKind.ACTION_FIELD)
 
     def slots_in_fill_order(self) -> list[Slot]:
       return [self.top_distant, self.top_hidden, self.bottom_hidden, self.bottom_distant]
@@ -274,17 +289,15 @@ class PlayerState:
     first_play_done: bool = False
     action_plays_left: int = 3
 
-    # active_traits: frozenset[Trait] = frozenset()
-
     def __post_init__(self):
         p = self.prefix
         self.action_field = ActionField(p)
-        self.deck = Slot(f"{p}_deck")
-        self.refresh = Slot(f"{p}_refresh")
-        self.discard = Slot(f"{p}_discard")
-        self.hand = Slot(f"{p}_hand")
-        self.sidebar = Slot(f"{p}_sidebar")
-        self.equipment = Slot(f"{p}_equipment")
+        self.deck = Slot(f"{p}_deck", SlotKind.DECK)
+        self.refresh = Slot(f"{p}_refresh", SlotKind.REFRESH)
+        self.discard = Slot(f"{p}_discard", SlotKind.DISCARD)
+        self.hand = Slot(f"{p}_hand", SlotKind.HAND)
+        self.sidebar = Slot(f"{p}_sidebar", SlotKind.SIDEBAR)
+        self.equipment = Slot(f"{p}_equipment", SlotKind.EQUIPMENT)
         self.weapon_slots = [WeaponSlot(f"{p}_ws_0")]
 
     # Flags
@@ -325,8 +338,10 @@ class GameState:
     players: dict[PID,PlayerState] = field(default_factory=dict)
 
     # Shared
-    guard_deck: Slot = field(default_factory=lambda: Slot("guard_deck"))
+    guard_deck: Slot = field(default_factory=lambda: Slot("guard_deck", SlotKind.GUARD_DECK))
     action_field: ActionField = field(default_factory=lambda: ActionField("shared"))
+
+    active_traits: "list[Trait]" = field(default_factory=list)
 
     # Event log — drained by the interaction layer between state pushes
     _event_log: list["Event"] = field(default_factory=list)
@@ -556,8 +571,79 @@ class TKind(Enum):
 @dataclass
 class Trait:
     name: str
-    callback: Callable[[Action], Effect]
     kind: TKind
+    applies: Callable[[Action], bool]
+    callback: Callable[[Action], Effect]
+
+    def instead(self):
+      self.kind = TKind.REPLACEMENT
+      return self
+
+    @staticmethod
+    def on_resolve(name: str, card: Card, callback: Callable[[Action], Effect]):
+        return Trait(name, TKind.BEFORE,
+                     lambda a: isinstance(a, Resolve) and a.card is card,
+                     callback)
+
+    @staticmethod
+    def while_equipped(name: str, card: Card, kind: TKind,
+                       applies: Callable[[Action], bool],
+                       callback: Callable[[Action], Effect]):
+        inner = applies
+        return Trait(name, kind,
+                     lambda a: card.slot is not None
+                               and card.slot.kind == SlotKind.EQUIPMENT
+                               and inner(a),
+                     callback)
+
+    @staticmethod
+    def as_a_weapon(name: str, card: Card, kind: TKind,
+                    applies: Callable[[Action], bool],
+                    callback: Callable[[Action], Effect]):
+        inner = applies
+        return Trait(name, kind,
+                     lambda a: card.slot is not None
+                               and card.slot.kind == SlotKind.WEAPON
+                               and inner(a),
+                     callback)
+
+    @staticmethod
+    def on_discard(name: str, card: Card,
+                   callback: Callable[[Action], Effect]):
+        return Trait(name, TKind.AFTER,
+                     lambda a: isinstance(a, Discard) and a.card is card,
+                     callback)
+
+    @staticmethod
+    def on_kill(name: str, card: Card,
+                callback: Callable[[Action], Effect]):
+        return Trait(name, TKind.AFTER,
+                     lambda a: isinstance(a, Slay) and a.enemy is card,
+                     callback)
+
+    @staticmethod
+    def on_placement(name: str, card: Card,
+                     callback: Callable[[Action], Effect]):
+        return Trait(name, TKind.AFTER,
+                     lambda a: (isinstance(a, Slot2Slot)
+                                and a.dest.kind == SlotKind.ACTION_FIELD
+                                and len(a.dest.cards) > a.dest_index
+                                and a.dest.cards[a.dest_index] is card),
+                     callback)
+
+    @staticmethod
+    def after_death(name: str, card: Card,
+                    permanent_trait: "Trait"):
+        def callback(a: Action) -> Effect:
+            def eff(g: GameState) -> Negotiation:
+                g.active_traits.append(permanent_trait)
+                return
+                yield  # pragma: no cover
+            return eff
+        return Trait(name, TKind.AFTER,
+                     lambda a: isinstance(a, Discard) and a.card is card,
+                     callback)
+
 
 
 ############# Events ########

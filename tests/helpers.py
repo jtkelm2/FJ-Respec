@@ -2,7 +2,7 @@
 
 import random
 from core.type import (
-    GameState, PlayerState, PID, Slot, ActionField,
+    GameState, PlayerState, PID, Slot, SlotKind, ActionField,
 )
 from core.engine import do
 from interact.interpret import run, AggregateInterpreter
@@ -25,7 +25,7 @@ def minimal_game(seed=42):
         rng=random.Random(seed),
         priority=PID.RED,
         players={PID.RED: PlayerState("red"), PID.BLUE: PlayerState("blue")},
-        guard_deck=Slot("guard_deck"),
+        guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK),
         action_field=ActionField("shared"),
     )
 

@@ -4,31 +4,31 @@ from core.type import *
 def do(action: Action) -> Effect:
     def effect(g: GameState) -> Negotiation:
         # Instead-of: find an applicable replacement and delegate to it.
-        candidates = [ tr for tr in _get_triggers(g) if tr.kind == TKind.REPLACEMENT ]  # pragma: no mutate
-        if candidates:  # pragma: no mutate
-          if len(candidates) == 1:  # pragma: no mutate
-            chosen = candidates[0]  # pragma: no mutate
+        candidates = [ tr for tr in _get_triggers(g, action) if tr.kind == TKind.REPLACEMENT ]
+        if candidates:
+          if len(candidates) == 1:
+            chosen = candidates[0]
           else:
-            pid = _player_to_choose_replacement(g, action)  # pragma: no mutate
+            pid = _player_to_choose_replacement(g, action)
             pb = PromptBuilder(f"Choose replacement for {action}:")  # pragma: no mutate
-            for tr in candidates:  # pragma: no mutate
-                pb.add(TextOption(tr.name))  # pragma: no mutate
-            response = yield pb.build(pid)  # pragma: no mutate
-            match response[pid]:  # pragma: no mutate
-              case TextOption(name):  # pragma: no mutate
-                chosen = next(tr for tr in candidates if tr.name == name)  # pragma: no mutate
+            for tr in candidates:
+                pb.add(TextOption(tr.name))
+            response = yield pb.build(pid)
+            match response[pid]:
+              case TextOption(name):
+                chosen = next(tr for tr in candidates if tr.name == name)
               case _: raise ValueError(f"Unexpected response: {response[pid]}")  # pragma: no mutate
-          yield from chosen.callback(action)(g)  # pragma: no mutate
-          return  # pragma: no mutate
+          yield from chosen.callback(action)(g)
+          return
 
         # Before triggers
-        yield from _fire_triggers(g, action, TKind.BEFORE)  # pragma: no mutate
+        yield from _fire_triggers(g, action, TKind.BEFORE)
 
         # Execute
         yield from _apply_action(action)(g)
 
         # After triggers
-        yield from _fire_triggers(g, action, TKind.AFTER)  # pragma: no mutate
+        yield from _fire_triggers(g, action, TKind.AFTER)
     return effect
 
 def simultaneously(effects: dict[PID, Effect]) -> Effect:
@@ -215,29 +215,49 @@ def _apply_action(action: Action) -> Effect:
                 raise Exception(f"Action not in list: {action}")  # pragma: no mutate
     return effect
 
-def _player_to_choose_replacement(g: GameState, action: Action) -> PID:  # pragma: no mutate
-    if isinstance(action, (Damage, Heal, SetHP)):  # pragma: no mutate
-        return action.target  # pragma: no mutate
-    return g.priority  # pragma: no mutate
+def _player_to_choose_replacement(g: GameState, action: Action) -> PID:
+    if isinstance(action, (Damage, Heal, SetHP)):
+        return action.target
+    return g.priority
 
 def _fire_triggers(g: GameState, action: Action, kind: TKind) -> Negotiation:
-    triggered = [ tr for tr in _get_triggers(g) if tr.kind == kind ]  # pragma: no mutate
-    if not triggered:  # pragma: no mutate
-        return  # pragma: no mutate
+    triggered = [ tr for tr in _get_triggers(g, action) if tr.kind == kind ]
+    if not triggered:
+        return
 
-    if len(triggered) > 1:  # pragma: no mutate
-        pid = _player_to_choose_replacement(g, action)  # pragma: no mutate
+    if len(triggered) > 1:
+        pid = _player_to_choose_replacement(g, action)
         pb = PromptBuilder(f"Order {kind} triggers for {action}:")  # pragma: no mutate
-        for tr in triggered:  # pragma: no mutate
-            pb.add(TextOption(tr.name))  # pragma: no mutate
-        response = yield pb.build(pid)  # pragma: no mutate
-        chosen = response[pid]  # pragma: no mutate
-        assert isinstance(chosen, TextOption)  # pragma: no mutate
-        idx = next(i for i, tr in enumerate(triggered) if tr.name == chosen.text)  # pragma: no mutate
-        triggered.insert(0, triggered.pop(idx))  # pragma: no mutate
+        for tr in triggered:
+            pb.add(TextOption(tr.name))
+        response = yield pb.build(pid)
+        chosen = response[pid]
+        assert isinstance(chosen, TextOption)
+        idx = next(i for i, tr in enumerate(triggered) if tr.name == chosen.text)
+        triggered.insert(0, triggered.pop(idx))
 
-    for tr in triggered:  # pragma: no mutate
-        yield from tr.callback(action)(g)  # pragma: no mutate
+    for tr in triggered:
+        yield from tr.callback(action)(g)
 
-def _get_triggers(g: GameState) -> list[Trait]:
-   return []  # pragma: no mutate
+def _get_triggers(g: GameState, action: Action) -> list[Trait]:
+    traits: list[Trait] = []
+
+    for pid in PID:
+        p = g.players[pid]
+        for slot in [p.equipment, p.discard, p.hand, p.sidebar,
+                     *p.action_field.slots_in_fill_order()]:
+            for card in slot.cards:
+                for trait in card.traits:
+                    traits.append(trait)
+        for ws in p.weapon_slots:
+            if ws.weapon is not None:
+                for trait in ws.weapon.traits:
+                    traits.append(trait)
+            for card in ws.killstack.cards:
+                for trait in card.traits:
+                    traits.append(trait)
+
+    for trait in g.active_traits:
+        traits.append(trait)
+
+    return [trait for trait in traits if trait.applies(action)]

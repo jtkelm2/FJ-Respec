@@ -4,7 +4,7 @@ Action Phase: slot resolution, card resolution, last resorts, elusive cleanup.
 
 import pytest
 from core.type import (
-    PID, CardType, Slot, ActionField, Alignment, WeaponSlot, Role,
+    PID, CardType, Slot, ActionField, Alignment, SlotKind, WeaponSlot, Role,
     Equip, Wield, Disarm, Resolve, Eat,
     TextOption, CardOption, SlotOption, WeaponSlotOption,
 )
@@ -37,17 +37,17 @@ def _armed(level, sharpness_level=0):
 class TestIsFirstSlot:
 
     def test_empty_slot_not_first(self):
-        assert not Slot("t").is_first
+        assert not Slot("t", SlotKind.HAND).is_first
 
     def test_slot_with_non_first_card(self):
         e = enemy(3)
-        s = Slot("t", [e])
+        s = Slot("t", SlotKind.HAND, cards=[e])
         assert not s.is_first
 
     def test_slot_with_first_card(self):
         from core.type import Card
         c = Card("first_enemy", "First Enemy", "", 5, (CardType.ENEMY,), False, True)
-        s = Slot("t", [c])
+        s = Slot("t", SlotKind.HAND, cards=[c])
         assert s.is_first
 
 

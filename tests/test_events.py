@@ -2,7 +2,7 @@
 
 import random
 from core.type import (
-    PID, GameState, PlayerState, Slot, WeaponSlot, ActionField, Phase,
+    PID, GameState, PlayerState, Slot, SlotKind, WeaponSlot, ActionField, Phase,
     Card, CardType, GameResult, Outcome,
     CardMoved, SlotTransferred, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
 )
@@ -55,8 +55,8 @@ class TestCardMovedEvents:
     def test_slot2slot_empty_source_no_event(self):
         from core.type import Slot2Slot
         g = minimal_game()
-        src = Slot("empty")
-        dest = Slot("dest")
+        src = Slot("empty", SlotKind.HAND)
+        dest = Slot("dest", SlotKind.HAND)
 
         run(g, do(Slot2Slot(src, dest, "test")), interp())
 
