@@ -2,10 +2,24 @@ from core.type import Card
 from cards.food import food, food_1
 from cards.weapons import weapon, weapon_3
 from cards.enemies import enemy, guard, enemy_1, enemy_3, enemy_7, enemy_14
+from cards.majors import (
+    the_fool, the_empress, the_emperor, the_lovers,
+    the_hermit, the_wheel_of_fortune, justice, the_hanged_man,
+)
 
 _FOOD_FACTORIES = {1: food_1}
 _WEAPON_FACTORIES = {3: weapon_3}
 _ENEMY_FACTORIES = {1: enemy_1, 3: enemy_3, 7: enemy_7, 14: enemy_14}
+_MAJOR_FACTORIES = {  # pragma: no mutate
+    0: the_fool,
+    3: the_empress,
+    4: the_emperor,
+    6: the_lovers,
+    9: the_hermit,
+    10: the_wheel_of_fortune,
+    11: justice,
+    12: the_hanged_man,
+}
 
 
 def player_deck() -> list[Card]:
@@ -20,6 +34,8 @@ def player_deck() -> list[Card]:
         f = _ENEMY_FACTORIES.get(lv)
         deck.append(f() if f else enemy(lv))  # pragma: no mutate
         deck.append(f() if f else enemy(lv))  # pragma: no mutate
+    for factory in _MAJOR_FACTORIES.values():
+        deck.append(factory())  # pragma: no mutate
     return deck
 
 def guard_deck() -> list[Card]:
