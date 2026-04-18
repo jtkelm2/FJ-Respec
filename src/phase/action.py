@@ -64,6 +64,7 @@ def _offer_last_resort(pid: PID) -> Effect:
         can_call_guards = (
             p.alignment == Alignment.GOOD
             and _find_role_card(p) is not None
+            and bool((yield from query(g, CanCallGuards(pid))))
         )
 
         if not (can_run or can_call_guards): return

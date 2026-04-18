@@ -79,7 +79,9 @@ def _apply_action(action: Action) -> Effect:
                 if ws is None:
                    yield from do(Discard(slayer, enemy, "combat (fists)"))(g)  # pragma: no mutate
                    return
-                yield from do(SlotCard(enemy, ws.killstack, "slay"))(g)  # pragma: no mutate
+                yield from do(AddToKillstack(enemy, slayer, ws.killstack, "slay"))(g)  # pragma: no mutate
+            case AddToKillstack(enemy, slayer, killstack, source):
+                yield from do(SlotCard(enemy, killstack, "killstack"))(g)  # pragma: no mutate
             case SetHP(target, value, source):
                 p = g.players[target]
                 old_hp = p.hp
@@ -223,6 +225,9 @@ def _apply_action(action: Action) -> Effect:
                 g.players[player].action_plays_left = 0
             case DecrementActionPlays(player, source):
                 g.players[player].action_plays_left = max(0, g.players[player].action_plays_left - 1)
+            case AssignRoleCard(card, player, source):
+                g.players[player].equipment.slot(card)
+                g._event_log.append(CardMoved(card, None, None, g.players[player].equipment, 0))
             case DistancePenalty(player, source):
                 yield from do(Damage(player, 3, "distance penalty"))(g)  # pragma: no mutate
             case FlipPriority():

@@ -595,6 +595,19 @@ class EndActionPhase(Action):
   source: str = ""  # pragma: no mutate
 
 @dataclass
+class AddToKillstack(Action):
+  enemy: Card
+  slayer: PID
+  killstack: Slot
+  source: str = ""  # pragma: no mutate
+
+@dataclass
+class AssignRoleCard(Action):
+  card: Card
+  player: PID
+  source: str = ""  # pragma: no mutate
+
+@dataclass
 class DistancePenalty(Action):
   player: PID
   source: str = ""  # pragma: no mutate
@@ -602,6 +615,18 @@ class DistancePenalty(Action):
 @dataclass
 class FlipPriority(Action):
   source: str = ""  # pragma: no mutate
+
+############ Kill detection ##############################
+
+def would_kill_enemy(action: Action, enemy: Card) -> bool:
+    """True if this action represents killing `enemy`. Covers both
+    AddToKillstack (weapon kills) and Discard of an enemy card."""
+    match action:
+        case AddToKillstack(e, _, _, _) if e is enemy:
+            return True
+        case Discard(_, c, _) if c is enemy:
+            return enemy.is_type(CardType.ENEMY)
+    return False
 
 ############ Traits ##############################
 
@@ -660,7 +685,7 @@ class Trait:
     def on_kill(card: Card,
                 callback: Callable[[Action], Effect]):
         return Trait(f"{card.display_name} (On Kill)", TKind.AFTER,  # pragma: no mutate
-                     lambda a: isinstance(a, Slay) and a.enemy is card,
+                     lambda a: would_kill_enemy(a, card),
                      callback)
 
     @staticmethod
@@ -669,6 +694,33 @@ class Trait:
         return Trait.as_a_weapon(card, kind,
                      lambda a: isinstance(a, Slay) and a.ws is not None,
                      callback)
+
+    @staticmethod
+    def on_role_assign(card: Card,
+                       permanent_trait_fn: "Callable[[PID], Trait]"):
+        """AFTER AssignRoleCard: install a permanent trait onto g.active_traits."""
+        def callback(a: Action) -> Effect:
+            assert isinstance(a, AssignRoleCard)
+            def eff(g: GameState) -> Negotiation:
+                g.active_traits.append(permanent_trait_fn(a.player))
+                return; yield  # pragma: no cover
+            return eff
+        return Trait(f"{card.display_name} (On Role Assign)", TKind.AFTER,  # pragma: no mutate
+                     lambda a: isinstance(a, AssignRoleCard) and a.card is card,
+                     callback)
+    
+    @staticmethod
+    def on_role_assign_once(card: Card,
+                            one_time_effect: Callable[[PID], Effect]):
+       """AFTER AssignRoleCard: perform a provided effect once."""
+       def callback(a: Action) -> Effect:
+          assert isinstance(a, AssignRoleCard)
+          def eff(g: GameState) -> Negotiation:
+             yield from one_time_effect(a.player)(g)
+          return eff
+       return Trait(f"{card.display_name} (On Role Assign Once)", TKind.AFTER,
+                    lambda a: isinstance(a, AssignRoleCard) and a.card is card,
+                    callback)
 
     @staticmethod
     def on_placement(card: Card,
@@ -682,15 +734,19 @@ class Trait:
 
     @staticmethod
     def after_death(card: Card,
-                    permanent_trait: "Trait"):
+                    permanent_trait: "Callable[[PID],Trait]"):
         def callback(a: Action) -> Effect:
-            def eff(g: GameState) -> Negotiation:
-                g.active_traits.append(permanent_trait)
+            def eff(g: "GameState") -> "Negotiation":
+                match a:
+                    case AddToKillstack(_, slayer, _, _):
+                        g.active_traits.append(permanent_trait(slayer))
+                    case Discard(discarder, _, _):
+                        g.active_traits.append(permanent_trait(discarder))
                 return
                 yield  # pragma: no cover
             return eff
         return Trait(f"{card.display_name} (After Death)", TKind.AFTER,  # pragma: no mutate
-                     lambda a: isinstance(a, Discard) and a.card is card,
+                     lambda a: would_kill_enemy(a, card),
                      callback)
 
 
@@ -724,6 +780,14 @@ class EnemyLevel(Query):
 
 @dataclass
 class CanRun(Query):
+    player: PID
+
+    @property
+    def base(self) -> int:
+        return 1
+
+@dataclass
+class CanCallGuards(Query):
     player: PID
 
     @property

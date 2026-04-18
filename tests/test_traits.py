@@ -361,10 +361,11 @@ class TestAfterDeathKeyword:
     def test_installs_permanent_trait_on_discard(self):
         g = minimal_game()
         log = []
-        permanent = _logging_trait("perm", TKind.AFTER,
-            lambda a: isinstance(a, Heal), log, "permanent_fired")
+        def make_perm(pid):
+            return _logging_trait("perm", TKind.AFTER,
+                lambda a: isinstance(a, Heal), log, "permanent_fired")
         en = Card("synth_ad", "SynthAd", "", 5, (CardType.ENEMY,), False, False)
-        en.traits = [Trait.after_death(en, permanent)]
+        en.traits = [Trait.after_death(en, make_perm)]
         g.players[PID.RED].action_field.top_distant.slot(en)
 
         assert len(g.active_traits) == 0
@@ -377,10 +378,11 @@ class TestAfterDeathKeyword:
 
     def test_silent_while_on_action_field(self):
         g = minimal_game()
-        permanent = _logging_trait("perm", TKind.AFTER,
-            lambda a: True, [], "should_not_fire")
+        def make_perm(pid):
+            return _logging_trait("perm", TKind.AFTER,
+                lambda a: True, [], "should_not_fire")
         en = Card("synth_ad", "SynthAd", "", 1, (CardType.ENEMY,), False, False)
-        en.traits = [Trait.after_death(en, permanent)]
+        en.traits = [Trait.after_death(en, make_perm)]
         g.players[PID.RED].action_field.top_distant.slot(en)
         g.players[PID.RED].hp = 10
 

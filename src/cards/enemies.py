@@ -1,7 +1,8 @@
+from cards.effect_utils import _const, _kill_slayer
 from core.type import (
     Card, CardType, Trait, TKind, Modifier, MKind,
     EnemyLevel, CanRun,
-    Action, Slay, Discard, Damage, Wield, Refresh, Slot2Slot, SlotKind,
+    Action, Slay, AddToKillstack, Discard, Damage, Wield, Refresh, Slot2Slot, SlotKind,
     EnsureDeck,
     PID, other,
     Effect, GameState, Negotiation,
@@ -9,19 +10,10 @@ from core.type import (
 from core.engine import do
 
 
-def _const(val):
-    """Modifier callback that ignores the query/base and returns a constant."""
-    def cb(_q, _v):
-        def eff(_g):
-            return val; yield  # pragma: no cover
-        return eff
-    return cb
-
-
 def enemy(level: int) -> Card:
     return Card(f"enemy_{level}", f"Enemy ({level})", "", level, (CardType.ENEMY,), False, False)  # pragma: no mutate
 
-def _make_guard(level: int) -> Card:
+def guard(level: int) -> Card:
     card = Card(
         f"guard_{level}", f"Guard ({level})",  # pragma: no mutate
         "You cannot run while this is on your field.\n"  # pragma: no mutate
@@ -31,9 +23,8 @@ def _make_guard(level: int) -> Card:
     )
     # On kill: refresh instead of killstack/discard
     def kill_cb(a: Action) -> Effect:
-        assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            yield from do(Refresh(card, a.slayer, "guard"))(g)  # pragma: no mutate
+            yield from do(Refresh(card, _kill_slayer(a), "guard"))(g)  # pragma: no mutate
         return eff
 
     # On placement: draw underneath if nothing beneath
@@ -68,9 +59,6 @@ def _make_guard(level: int) -> Card:
         _const(0))]
     return card
 
-def guard(level: int) -> Card:
-    return _make_guard(level)
-
 
 # enemy_1 (Gobshite) — If attacking with your fists: This is a level 22 enemy.
 
@@ -97,11 +85,10 @@ def enemy_3() -> Card:
         3, (CardType.ENEMY,), False, False,
     )
     def callback(a: Action) -> Effect:
-        assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            if a.ws is None: return
-            for c in list(a.ws.killstack.cards):
-                yield from do(Discard(a.slayer, c, "enemy_3"))(g)  # pragma: no mutate
+            if not isinstance(a, AddToKillstack): return  # weapon kills only
+            for c in list(a.killstack.cards):
+                yield from do(Discard(_kill_slayer(a), c, "enemy_3"))(g)  # pragma: no mutate
         return eff
     card.traits = [Trait.on_kill(card, callback)]
     return card
@@ -142,13 +129,17 @@ def enemy_7() -> Card:
         7, (CardType.ENEMY,), False, False,
     )
     def callback(a: Action) -> Effect:
-        assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            if a.ws is None: return
-            if a.ws.weapon is not None:
-                yield from do(Discard(a.slayer, a.ws.weapon, "enemy_7"))(g)  # pragma: no mutate
-            for c in list(a.ws.killstack.cards):
-                yield from do(Discard(a.slayer, c, "enemy_7 kill pile"))(g)  # pragma: no mutate
+            if not isinstance(a, AddToKillstack): return  # weapon kills only
+            slayer = _kill_slayer(a)
+            # Find the WeaponSlot that owns this killstack
+            ws = next((ws for ws in g.players[slayer].weapon_slots
+                       if ws.killstack is a.killstack), None)
+            if ws is None: return
+            if ws.weapon is not None:
+                yield from do(Discard(slayer, ws.weapon, "enemy_7"))(g)  # pragma: no mutate
+            for c in list(ws.killstack.cards):
+                yield from do(Discard(slayer, c, "enemy_7 kill pile"))(g)  # pragma: no mutate
         return eff
     card.traits = [Trait.on_kill(card, callback)]
     return card
@@ -163,11 +154,10 @@ def enemy_8() -> Card:
         8, (CardType.ENEMY,), False, False,
     )
     def callback(a: Action) -> Effect:
-        assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            yield from do(Wield(a.slayer, card, "Lonely Ogre"))(g)  # pragma: no mutate
+            yield from do(Wield(_kill_slayer(a), card, "Lonely Ogre"))(g)  # pragma: no mutate
         return eff
-    card.traits = [Trait.on_kill(card, callback)]
+    card.traits = [Trait.on_kill(card, callback).instead()]
     return card
 
 
@@ -180,9 +170,8 @@ def enemy_14() -> Card:
         14, (CardType.ENEMY,), False, False,
     )
     def callback(a: Action) -> Effect:
-        assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            yield from do(Damage(a.slayer, 3, "BA Barockus"))(g)
+            yield from do(Damage(_kill_slayer(a), 3, "BA Barockus"))(g)
         return eff
     card.traits = [Trait.on_kill(card, callback)]
     return card

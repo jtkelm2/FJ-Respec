@@ -2,7 +2,7 @@ from core.type import (
     Card, CardType, Trait, TKind, PID, other, Phase, Alignment,
     Action, Resolve, Damage, Heal, Refresh, SetHP, Discard, Death as DeathAction,
     EnsureDeck, Slot2Slot, EndPhase, TransferHP, Equip, Wield, Slay,
-    AddCounter, EndActionPhase,
+    AddCounter, EndActionPhase, AddToKillstack,
     Modifier, MKind, Sharpness, WORLD_NAME,
     Effect, GameState, Negotiation,
     PromptBuilder, TextOption, CardOption,
@@ -339,9 +339,15 @@ def the_chariot() -> Card:
             yield from do(Equip(resolver, card, "The Chariot"))(g)  # pragma: no mutate
         return eff
 
+    chariot_passthrough = False
+    def chariot_applies(a: Action) -> bool:
+        if chariot_passthrough: return False
+        return isinstance(a, Damage) and a.amount > 0
+
     def damage_cb(a: Action) -> Effect:
         assert isinstance(a, Damage)
         def eff(g: GameState) -> Negotiation:
+            nonlocal chariot_passthrough
             for pid in PID:
                 if card.slot is g.players[pid].equipment:
                     pb = (PromptBuilder(f"The Chariot: Discard to prevent {a.amount} damage?")  # pragma: no mutate
@@ -351,13 +357,15 @@ def the_chariot() -> Card:
                     if response[pid] == TextOption("Prevent"):
                         yield from do(Discard(pid, card, "The Chariot"))(g)  # pragma: no mutate
                     else:
+                        chariot_passthrough = True
                         yield from do(a)(g)
+                        chariot_passthrough = False
         return eff
 
     card.traits = [
         Trait.on_resolve(card, resolve_cb).instead(),
         Trait.while_equipped(card, TKind.REPLACEMENT,
-            lambda a: isinstance(a, Damage) and a.amount > 0,
+            chariot_applies,
             damage_cb),
     ]
     return card
@@ -485,3 +493,149 @@ def the_world() -> Card:
         "After death: If both copies of this card are dead, then two Good players may claim victory!",  # pragma: no mutate
         21, (CardType.ENEMY,), True, False,  # Elusive
     )
+
+
+# --- The High Priestess (major_2) ----------------------------------------
+# On resolve: Name up to 2 cards. Then, look at the cards in the refresh
+# pile. For each card in the pile that you named, choose:
+#  Heal 7 HP / Deal 7 damage / Force equipment discard
+
+def the_high_priestess() -> Card:
+    card = Card(
+        "major_2", "The High Priestess",  # pragma: no mutate
+        "On resolve: Name up to 2 cards. Then, look at the cards in the refresh pile. "  # pragma: no mutate
+        "For each card in the pile that you named, choose: Heal 7 HP, "  # pragma: no mutate
+        "Deal 7 damage, or Force equipment discard.",  # pragma: no mutate
+        None, (CardType.EVENT,),
+    )
+    def callback(a: Action) -> Effect:
+        assert isinstance(a, Resolve)
+        resolver = a.resolver
+        def eff(g: GameState) -> Negotiation:
+            p = g.players[resolver]
+            opp = other(resolver)
+            refresh_names = {c.name for c in p.refresh.cards}
+            all_names = sorted({c.name for c in p.deck.cards} | refresh_names
+                               | {c.name for c in p.discard.cards})
+            named: list[str] = []
+            for i in range(2):
+                remaining = [n for n in all_names if n not in named]
+                if not remaining: break
+                pb = PromptBuilder(f"High Priestess: Name card ({i+1}/2)")  # pragma: no mutate
+                for n in remaining:
+                    pb.add(TextOption(n))  # pragma: no mutate
+                pb.add(TextOption("Done"))  # pragma: no mutate
+                response = yield pb.build(resolver)
+                choice = response[resolver]
+                assert isinstance(choice, TextOption)
+                if choice.text == "Done": break
+                named.append(choice.text)
+            hits = [n for n in named if n in refresh_names]
+            for name in hits:
+                pb = PromptBuilder(f"High Priestess: {name} found! Choose:")  # pragma: no mutate
+                pb.add(TextOption("Heal 7"))  # pragma: no mutate
+                pb.add(TextOption("Deal 7 damage"))  # pragma: no mutate
+                pb.add(TextOption("Force equipment discard"))  # pragma: no mutate
+                response = yield pb.build(resolver)
+                choice = response[resolver]
+                assert isinstance(choice, TextOption)
+                if choice.text == "Heal 7":
+                    yield from do(Heal(resolver, 7, "High Priestess"))(g)  # pragma: no mutate
+                elif choice.text == "Deal 7 damage":
+                    yield from do(Damage(opp, 7, "High Priestess"))(g)  # pragma: no mutate
+                elif choice.text == "Force equipment discard":
+                    opp_equip = list(g.players[opp].equipment.cards)
+                    if opp_equip:
+                        epb = PromptBuilder("High Priestess: Discard which?")  # pragma: no mutate
+                        epb.add_cards(opp_equip)
+                        r2 = yield epb.build(opp)
+                        r2_opt = r2[opp]
+                        assert isinstance(r2_opt, CardOption)
+                        yield from do(Discard(opp, r2_opt.card, "High Priestess"))(g)  # pragma: no mutate
+        return eff
+    card.traits = [Trait.on_resolve(card, callback)]
+    return card
+
+
+# --- Temperance (major_14) -----------------------------------------------
+# Boss, level 14. On kill: Heal 5.
+# After death: At any point, you may give any amount of your own HP to the
+# other player. (Deferred — timing of "at any point" ability TBD.)
+
+def temperance() -> Card:
+    card = Card(
+        "major_14", "Temperance",  # pragma: no mutate
+        "On kill: Heal 5.\n"  # pragma: no mutate
+        "After death: At any point, you may give any amount of your own HP to the other player.",  # pragma: no mutate
+        14, (CardType.ENEMY,), True,  # Elusive
+    )
+    def kill_cb(a: Action) -> Effect:
+        def eff(g: GameState) -> Negotiation:
+            match a:
+                case AddToKillstack(_, slayer, _, _): pid = slayer
+                case Discard(discarder, _, _): pid = discarder
+                case _: return
+            yield from do(Heal(pid, 5, "Temperance"))(g)  # pragma: no mutate
+        return eff
+    card.traits = [Trait.on_kill(card, kill_cb)]
+    return card
+
+
+# --- The Star (major_17) -------------------------------------------------
+# While equipped: When you die, discard this and revive to d4 HP.
+# Place all your action cards into refresh. Your Action Phase is over.
+
+def the_star() -> Card:
+    card = Card(
+        "major_17", "The Star",  # pragma: no mutate
+        "While equipped: When you die, discard this and revive to d4 HP. "  # pragma: no mutate
+        "Place all your action cards into refresh. Your Action Phase is over.",  # pragma: no mutate
+        None, (CardType.EQUIPMENT,),
+    )
+    def death_cb(a: Action) -> Effect:
+        assert isinstance(a, DeathAction)
+        pid = a.target
+        def eff(g: GameState) -> Negotiation:
+            yield from do(Discard(pid, card, "The Star"))(g)  # pragma: no mutate
+            hp = g.rng.randint(1, 4)
+            yield from do(SetHP(pid, hp, "The Star"))(g)  # pragma: no mutate
+            p = g.players[pid]
+            for slot in p.action_field.slots_in_fill_order():
+                for c in list(slot.cards):
+                    yield from do(Refresh(c, pid, "The Star"))(g)  # pragma: no mutate
+            yield from do(EndActionPhase(pid, "The Star"))(g)  # pragma: no mutate
+        return eff
+    card.traits = [Trait.while_equipped(card, TKind.REPLACEMENT,
+        lambda a: isinstance(a, DeathAction) and _card_belongs_to(card, a.target),
+        death_cb)]
+    return card
+
+
+# --- The Moon (major_18) -------------------------------------------------
+# Boss, level 18. After death: At the start of each Refresh Phase, record
+# your HP. Until next Refresh Phase, your HP may not deviate more than 10.
+
+def the_moon() -> Card:
+    card = Card(
+        "major_18", "The Moon",  # pragma: no mutate
+        "After death: At the start of each Refresh Phase, record your HP. "  # pragma: no mutate
+        "Until next Refresh Phase, your HP may not deviate more than 10 from that amount.",  # pragma: no mutate
+        18, (CardType.ENEMY,), True,  # Elusive
+    )
+    from core.type import StartPhase
+
+    def make_permanent(pid: PID) -> Trait:
+        def refresh_cb(a: Action) -> Effect:
+            def eff(g: GameState) -> Negotiation:
+                if pid is None: return; yield  # pragma: no cover
+                p = g.players[pid]
+                recorded = p.hp
+                p.hp_floor = max(0, recorded - 10)
+                p.hp_ceiling = recorded + 10
+            return eff
+        return Trait(f"{card.display_name} (HP Lock)", TKind.BEFORE,  # pragma: no mutate
+                     lambda a: isinstance(a, StartPhase) and a.phase == Phase.REFRESH,
+                     refresh_cb)
+
+    card.traits = [Trait.after_death(card, make_permanent)]
+    return card

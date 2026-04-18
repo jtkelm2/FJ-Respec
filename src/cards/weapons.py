@@ -94,6 +94,7 @@ def weapon_7() -> Card:
             if on_opp_field:
                 yield from do(Discard(a.slayer, a.enemy, "weapon_7"))(g)  # pragma: no mutate
             else:
+                assert a.ws is not None
                 yield from do(SlotCard(a.enemy, a.ws.killstack, "slay"))(g)  # pragma: no mutate
         return eff
 

@@ -5,7 +5,8 @@ from cards.enemies import enemy, guard, enemy_1, enemy_3, enemy_4, enemy_7, enem
 from cards.majors import (
     the_fool, the_empress, the_emperor, the_lovers,
     the_hermit, the_wheel_of_fortune, justice, the_hanged_man,
-    strength, the_magician, the_chariot, death_card, the_tower,
+    strength, the_magician, the_high_priestess, the_chariot,
+    death_card, temperance, the_tower, the_star, the_moon,
     judgement, the_world,
 )
 
@@ -15,6 +16,7 @@ _ENEMY_FACTORIES = {1: enemy_1, 3: enemy_3, 4: enemy_4, 7: enemy_7, 8: enemy_8, 
 _MAJOR_FACTORIES = {  # pragma: no mutate
     0: the_fool,
     1: the_magician,
+    2: the_high_priestess,
     3: the_empress,
     4: the_emperor,
     6: the_lovers,
@@ -25,7 +27,10 @@ _MAJOR_FACTORIES = {  # pragma: no mutate
     11: justice,
     12: the_hanged_man,
     13: death_card,
+    14: temperance,
     16: the_tower,
+    17: the_star,
+    18: the_moon,
     20: judgement,
     21: the_world,
 }
