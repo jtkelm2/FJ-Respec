@@ -1,6 +1,7 @@
 from cards.effect_utils import _const
+from typing import Callable
 from core.type import (
-    Card, CardType, Trait, TKind, PID, other, Phase, Alignment,
+    Card, CardType, Trait, TKind, PID, other, Phase, Alignment, Role,
     Action, Damage, Heal, Eat, Wield, Resolve, Discard, Slay, Refresh,
     Death as DeathAction, AddToKillstack, AssignRoleCard,
     EndPhase, EndActionPhase, SetHP, AddCounter,
@@ -304,3 +305,24 @@ def detective() -> Card:
         Trait.on_role_assign_once(card, _no_guards_mod),
     ]
     return card
+
+
+############ Role registry ##############################
+
+# Each entry: (factory, Role).
+# factory() -> Card produces the role card with traits/modifiers.
+# Role carries the name and alignment for PlayerState.
+
+GOOD_ROLES: list[tuple[Callable[[], Card], Role]] = [
+    (lambda: role_card(good=True), Role("Human", Alignment.GOOD)),
+    (detective,    Role("Detective", Alignment.GOOD)),
+]
+
+EVIL_ROLES: list[tuple[Callable[[], Card], Role]] = [
+    (lambda: role_card(good=False), Role("???", Alignment.EVIL)),
+    (food_fighter, Role("Foo(d) Fighter", Alignment.EVIL)),
+    (corruption,   Role("Corruption", Alignment.EVIL)),
+    (the_poet,     Role("The Poet", Alignment.EVIL)),
+    (the_world_role, Role("The World", Alignment.EVIL)),
+    (leo,          Role("Leo", Alignment.EVIL)),
+]

@@ -71,7 +71,7 @@ def test_no_duplicate_prompts_in_either_race():
     is reused on the next interpret() call — not duplicated."""
     _setup_log()
 
-    g = create_initial_state(seed=42)
+    g = create_initial_state(seed=42, vanilla_roles=True)
     red = QueuePlayer("RED")
     blue = QueuePlayer("BLUE")
     players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}

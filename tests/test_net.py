@@ -49,7 +49,7 @@ class TestSerialization:
 
     def test_player_view_round_trips_through_json(self):
         """A PlayerView serialized via Serializer survives JSON round-trip."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
@@ -60,7 +60,7 @@ class TestSerialization:
         assert recovered == serialized
 
     def test_all_enum_fields_become_strings(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
@@ -70,7 +70,7 @@ class TestSerialization:
         assert serialized["priority"] in ("RED", "BLUE")
 
     def test_game_result_serializes(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         g.game_result = GameResult((PID.RED,), Outcome.GOOD_KILLED_EVIL)
         acc = Accumulator(g)
         ser = acc.serializer()
@@ -83,7 +83,7 @@ class TestSerialization:
 
     def test_slots_keyed_by_name(self):
         """State slots dict is keyed by slot names."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
@@ -100,7 +100,7 @@ class TestSerialization:
 
     def test_card_names_reference_catalog(self):
         """Every card name in a state view appears in the catalog."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         ser = acc.serializer()
         catalog = acc.catalog(PID.RED)
@@ -115,7 +115,7 @@ class TestSerialization:
 
     def test_catalog_slots_keyed_by_wire_name(self):
         """Catalog slots are flat: {wire_name: {owner, role}}."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         catalog = acc.catalog(PID.RED)
 
@@ -126,7 +126,7 @@ class TestSerialization:
 
     def test_catalog_owner_labels_relative_to_pid(self):
         """Catalog labels slots as self/opponent relative to receiving player."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         red_catalog = acc.catalog(PID.RED)
         blue_catalog = acc.catalog(PID.BLUE)
@@ -149,7 +149,7 @@ class TestSerialization:
 
     def test_card_option_uses_slot_name_and_index(self):
         """CardOption serialization uses slot name and index."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         ser = acc.serializer()
 
@@ -166,7 +166,7 @@ class TestSerialization:
 
     def test_weapon_slots_in_catalog(self):
         """Weapon slots are nested by owner and role."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         catalog = acc.catalog(PID.RED)
 
@@ -176,7 +176,7 @@ class TestSerialization:
 
     def test_weapons_in_state(self):
         """Weapons in state carry name, card, sharpness, kills."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         acc = Accumulator(g)
         ser = acc.serializer()
         view = compute_player_view(g, PID.RED)
@@ -195,7 +195,7 @@ class TestSerialization:
 class TestAsyncAggregateInterpreter:
 
     def test_ask_single_player(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         red = RecordingPlayer([TextOption("B")])
         blue = RecordingPlayer([])
         interp = _make_interp(g, red, blue)
@@ -206,7 +206,7 @@ class TestAsyncAggregateInterpreter:
         assert response == {PID.RED: TextOption("B")}
 
     def test_ask_both(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         red = RecordingPlayer([TextOption("X")])
         blue = RecordingPlayer([TextOption("Y")])
         interp = _make_interp(g, red, blue)
@@ -222,7 +222,7 @@ class TestAsyncAggregateInterpreter:
 
     def test_ask_either_multi(self):
         """AskEither with two players returns whichever responds first."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         red = RecordingPlayer([TextOption("A")])
         blue = RecordingPlayer([TextOption("C")])
         interp = _make_interp(g, red, blue)
@@ -238,7 +238,7 @@ class TestAsyncAggregateInterpreter:
         assert pid in (PID.RED, PID.BLUE)
 
     def test_state_pushed_on_first_interpret(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         red = RecordingPlayer([TextOption("ok")])
         blue = RecordingPlayer([])
         interp = _make_interp(g, red, blue)
@@ -249,7 +249,7 @@ class TestAsyncAggregateInterpreter:
         assert len(blue.states) == 1
 
     def test_no_push_when_view_unchanged(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
         blue = RecordingPlayer([])
         interp = _make_interp(g, red, blue)
@@ -261,7 +261,7 @@ class TestAsyncAggregateInterpreter:
         assert len(blue.states) == 1
 
     def test_push_after_state_change(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         red = RecordingPlayer([TextOption("ok"), TextOption("ok")])
         blue = RecordingPlayer([])
         interp = _make_interp(g, red, blue)
@@ -281,20 +281,20 @@ class TestAsyncAggregateInterpreter:
 class TestPlayerViewFogOfWar:
 
     def test_opponent_hp_hidden(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         g.players[PID.BLUE].hp = 7
         view = compute_player_view(g, PID.RED)
 
         assert view.hp == g.players[PID.RED].hp
 
     def test_own_hand_visible(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         view = compute_player_view(g, PID.RED)
         assert len(view.hand) == len(g.players[PID.RED].hand.cards)
 
     def test_opponent_hidden_slots_not_in_view(self):
         """Opponent hidden slots, equipment, deck, refresh, discard are not exposed."""
-        view = compute_player_view(create_initial_state(seed=42), PID.RED)
+        view = compute_player_view(create_initial_state(seed=42, vanilla_roles=True), PID.RED)
         assert not hasattr(view, "opp_action_field_top_hidden_count")
         assert not hasattr(view, "opp_equipment_count")
         # Opponent deck count IS visible

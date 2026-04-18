@@ -21,7 +21,7 @@ class TestRefreshDealCounts:
     """
 
     def test_refresh_deals_3_action_cards_from_4_empty_slots(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         run(g, refresh_phase(), interp())
 
         for pid in PID:
@@ -34,7 +34,7 @@ class TestRefreshDealCounts:
 
     def test_refresh_deals_fewer_action_cards_when_slots_occupied(self):
         """With 1 slot already filled, 3 empty -> deals 2 (3 - 1)."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         g.players[PID.RED].action_field.top_distant.slot(food(99))
 
         run(g, refresh_phase(), interp())
@@ -57,7 +57,7 @@ class TestSetupRoleAssignment:
         assert BLUE's specific alignment. The mutant changes which role
         index BLUE gets, which (for 2/3 of seeds) changes the alignment.
         """
-        g = create_initial_state(seed=44)
+        g = create_initial_state(seed=44, vanilla_roles=True)
         assert g.players[PID.BLUE].alignment == Alignment.GOOD
 
 
@@ -68,7 +68,7 @@ class TestDeadPlayerSkipped:
     """
 
     def test_refresh_does_not_deal_to_dead_player(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         run(g, do(Death(PID.RED)), interp())
         assert g.players[PID.RED].is_dead
 
@@ -82,13 +82,13 @@ class TestCardConservation:
     """Total card count must be identical before and after any operation."""
 
     def test_conservation_across_refresh_phase(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         before = count_all_cards(g)
         run(g, refresh_phase(), interp())
         assert count_all_cards(g) == before
 
     def test_conservation_across_fists_combat(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         e = enemy(5)
         g.players[PID.RED].hand.slot(e)
         before = count_all_cards(g)
@@ -99,7 +99,7 @@ class TestCardConservation:
         from core.type import WeaponSlot
         from cards import weapon
 
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         e = enemy(5)
         g.players[PID.RED].hand.slot(e)
         ws = WeaponSlot("t")
@@ -112,7 +112,7 @@ class TestCardConservation:
         assert count_all_cards(g) == before
 
     def test_conservation_across_manipulation_dump(self):
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         before = count_all_cards(g)
         from phase.manipulation import manipulation_phase
         run(g, manipulation_phase(), interp(TextOption("Dump"), blue=[TextOption("Dump")]))
@@ -120,7 +120,7 @@ class TestCardConservation:
 
     def test_conservation_across_refresh_then_manipulation(self):
         """Full refresh -> manipulation sequence preserves card count."""
-        g = create_initial_state(seed=42)
+        g = create_initial_state(seed=42, vanilla_roles=True)
         before = count_all_cards(g)
 
         run(g, refresh_phase(), interp())
