@@ -114,13 +114,7 @@ class Serializer:
         o_pre = opp.name.lower()
 
         def _cards(cards: list[Card]) -> list[dict]:
-            result = []
-            for i, c in enumerate(cards):
-                entry: dict = {"name": c.name}  # pragma: no mutate
-                if i == 0 and c.counters > 0:
-                    entry["counters"] = c.counters
-                result.append(entry)
-            return result
+            return [{"name": card.name, "counters": card.counters} for card in cards] # pragma: no mutate
 
         slots: dict[str, list[str] | int] = {}
 
@@ -145,7 +139,7 @@ class Serializer:
 
         # Own weapon holders + killstacks (public to the owner — card lists of length 0 or N)
         for i, (card, _, killstack) in enumerate(view.weapons):
-            slots[f"{p_pre}_ws_{i}_weapon"] = [card.name] if card is not None else []
+            slots[f"{p_pre}_ws_{i}_weapon"] = _cards([card]) if card is not None else []
             slots[f"{p_pre}_ws_{i}_killstack"] = _cards(killstack)
 
         # Shared

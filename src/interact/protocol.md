@@ -151,15 +151,16 @@ Sent whenever the visible game state for this player has changed. Carries a comp
   "view": {
     "hp": 18,
     "slots": {
-      "red_hand": ["food_5", "enemy_3", "weapon_2"],
+      "red_hand": [{"name": "food_5", "counters": 0}, {"name": "enemy_3", "counters": 0}, {"name": "weapon_2", "counters": 0}],
       "red_deck": 25,
-      "red_equipment": ["human"],
-      "blue_action_field_top_distant": ["enemy_5"],
-      "red_ws_0_weapon": ["weapon_5"],
-      "red_ws_0_killstack": ["enemy_3"],
+      "red_equipment": [{"name": "human"}],
+      "blue_action_field_top_distant": [{"name": "enemy_5", "counters": 2}],
+      "red_ws_0_weapon": [{"name": "weapon_5", "counters": 1}],
+      "red_ws_0_killstack": [{"name": "enemy_3"}],
       "guard_deck": 14,
       ...
     },
+    "current_phase": "ACTION",
     "priority": "RED",
     "game_result": null
   }
@@ -180,53 +181,21 @@ Per-weapon-slot info (the wielded weapon card and the kill stack) lives in `slot
 
 Opponent weapon holders, killstacks, sharpness, and weapon identity are **hidden information**. Opponent equipment, refresh, discard, hand, sidebar, and hidden action field slots are also hidden.
 
-#### 3.2.X Events
-
-The `state` message MAY include an `events` array describing what happened since the last state push. Events are **advisory** — the `view` is authoritative. Clients that ignore events still work correctly; clients that process them can animate card movements, HP changes, etc.
-
-```json
-{
-  "type": "state",
-  "view": { ... },
-  "events": [
-    {"type": "card_moved", "source": "red_hand", "source_index": 0, "dest": "red_discard", "dest_index": 0},
-    {"type": "card_moved", "source": "blue_deck", "source_index": 0, "dest": "blue_action_field_top_distant", "dest_index": 1},
-    {"type": "slot_transferred", "source": "red_refresh", "dest": "red_deck", "count": 20},
-    {"type": "hp_changed", "old": 20, "new": 15},
-    {"type": "slot_shuffled", "slot": "red_deck"},
-    {"type": "player_died", "target": "RED"},
-    {"type": "phase_changed", "phase": "ACTION"},
-    {"type": "game_ended", "winners": ["RED"], "outcome": "GOOD_KILLED_EVIL"}
-  ]
-}
-```
-
-Event types:
-
-| Event type       | Fields                                                   | Description                                             |
-| ---------------- | -------------------------------------------------------- | ------------------------------------------------------- |
-| `card_moved`     | `source`, `source_index`, `dest`, `dest_index`           | A card moved between slots. Identity is conveyed by slot + index. `source`/`source_index` refer to the state *before* the move; `dest`/`dest_index` refer to the state *after*. `source` is `null` if the card had no prior slot. |
-| `slot_transferred` | `source`, `dest`, `count`                              | All cards of `source` were moved to `dest` as a batch (e.g., refresh pile shuffled into deck). Clients may animate this as a single batch gesture, rather than N individual card moves. |
-| `hp_changed`     | `old`, `new`                                             | This player's HP changed. Only emitted for own HP.      |
-| `slot_shuffled`  | `slot`                                                   | A slot was shuffled. `slot` is the wire name.           |
-| `player_died`    | `target`                                                 | A player died. `target` is `"RED"` or `"BLUE"`.         |
-| `phase_changed`  | `phase`                                                  | Game phase changed. `phase` is the phase name or `null`.|
-| `game_ended`     | `winners`, `outcome`                                     | Game ended with the given result.                       |
-
-The client can cross-reference `source` + `source_index` against the *previous* state snapshot to determine which card moved (for animation); `dest` + `dest_index` can be cross-referenced against the *current* state to locate the card's new position. This works even for facedown moves (e.g., drawing from the deck): the client animates a card-back flying from `deck[source_index]` to the destination, without needing to know the card's identity.
-
-Events are fog-of-war filtered per player:
-- Card movements where both source and destination are hidden are omitted entirely.
-- Own HP changes are visible; opponent HP changes are omitted.
-- Shuffles of hidden slots are omitted.
-- Deaths, phase changes, and game endings are always visible to both players.
-
 #### 3.2.1 Slots
 
 The `slots` object is keyed by **slot wire name** (as established in the catalog). The value is one of:
 
-- **`list[string]`** — visible slot contents. Each string is a card name referencing the card catalog.
+- **`list[object]`** — visible slot contents. Each entry is a card object (see below).
 - **`int`** — count-only (fog of war). The client can see how many cards are present but not their identities.
+
+**Hidden slots are omitted entirely** from the `slots` object — their wire names do not appear as keys. A client looking up a hidden slot by name will find nothing. See the visibility table below for which slots are hidden in which direction.
+
+Each card object has these fields:
+
+| Field      | Type   | Description                                                                                                                         |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `name`     | string | Card name referencing the card catalog (§3.1.1).                                                                        |
+| `counters` | int    | Number of counters on this card instance.
 
 **Index convention.** Within any slot, **index 0 is the top of the pile** (the card that would be drawn next); higher indices are progressively further down. This applies uniformly to decks, discards, hands, action field slots, killstacks, and weapon holders — anywhere a card list or index appears (in `state` slot contents, `card` option `index` fields, and `card_moved` event `source_index`/`dest_index` fields).
 
@@ -253,6 +222,47 @@ When non-null:
 | `outcome` | string          | One of the outcome constants (see below).                        |
 
 Outcome values: `MUTUAL_GOOD_WIN`, `GOOD_KILLED_EVIL`, `EVIL_KILLED_GOOD`, `GOOD_KILLED_GOOD`, `EXHAUSTION`, `GOOD_GOOD_MUTUAL_DEATH`, `GOOD_EVIL_MUTUAL_DEATH`, `GOOD_THWARTED`, `EVIL_THWARTED`.
+
+#### 3.2.3 Events
+
+The `state` message MAY include an `events` array describing what happened since the last state push. Events are **advisory** — the `view` is authoritative. Clients that ignore events still work correctly; clients that process them can animate card movements, HP changes, etc.
+
+```json
+{
+  "type": "state",
+  "view": { ... },
+  "events": [
+    {"type": "card_moved", "source": "red_hand", "source_index": 0, "dest": "red_discard", "dest_index": 0},
+    {"type": "card_moved", "source": "blue_deck", "source_index": 0, "dest": "blue_action_field_top_distant", "dest_index": 1},
+    {"type": "slot_transferred", "source": "red_refresh", "dest": "red_deck", "count": 20},
+    {"type": "hp_changed", "old": 20, "new": 15},
+    {"type": "slot_shuffled", "slot": "red_deck"},
+    {"type": "player_died", "target": "RED"},
+    {"type": "phase_changed", "phase": "ACTION"},
+    {"type": "game_ended", "winners": ["RED"], "outcome": "GOOD_KILLED_EVIL"}
+  ]
+}
+```
+
+Event types:
+
+| Event type       | Fields                                                   | Description                                             |
+| ---------------- | -------------------------------------------------------- | ------------------------------------------------------- |
+| `card_moved`     | `source`, `source_index`, `dest`, `dest_index`           | A card moved between slots. Identity is conveyed by slot + index. `source`/`source_index` refer to the state *before* the move; `dest`/`dest_index` refer to the state *after*. `source` and `source_index` are both `null` if the card had no prior slot. |
+| `slot_transferred` | `source`, `dest`, `count`                              | All cards of `source` were moved to `dest` as a batch (e.g., refresh pile shuffled into deck). Clients may animate this as a single batch gesture, rather than N individual card moves. |
+| `hp_changed`     | `old`, `new`                                             | This player's HP changed. Only emitted for own HP.      |
+| `slot_shuffled`  | `slot`                                                   | A slot was shuffled. `slot` is the wire name.           |
+| `player_died`    | `target`                                                 | A player died. `target` is `"RED"` or `"BLUE"`.         |
+| `phase_changed`  | `phase`                                                  | Game phase changed. `phase` is the phase name or `null`.|
+| `game_ended`     | `winners`, `outcome`                                     | Game ended with the given result.                       |
+
+The client can cross-reference `source` + `source_index` against the *previous* state snapshot to determine which card moved (for animation); `dest` + `dest_index` can be cross-referenced against the *current* state to locate the card's new position. This works even for facedown moves (e.g., drawing from the deck): the client animates a card-back flying from `deck[source_index]` to the destination, without needing to know the card's identity.
+
+Events are fog-of-war filtered per player:
+- Card movements where both source and destination are hidden are omitted entirely.
+- Own HP changes are visible; opponent HP changes are omitted.
+- Shuffles of hidden slots are omitted.
+- Deaths, phase changes, and game endings are always visible to both players.
 
 ### 3.3 `prompt`
 
@@ -283,7 +293,7 @@ Asks the player to choose one option.
 | Option type     | Schema                                                    | Meaning                                                                                                                              |
 | --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `text`          | `{"type": "text", "text": <string>}`                      | A free-text choice (e.g. `"Yes"`, `"Cancel"`, `"Pass"`). Render the `text` field as the label.                                      |
-| `card`          | `{"type": "card", "slot": <string>, "index": <int>}`      | Choose a specific card by its location. `slot` is a slot wire name, `index` is the position within that slot. The client can look up the card name from the last `state` message to render it, or display the slot name and index. |
+| `card`          | `{"type": "card", "slot": <string>, "index": <int>}`      | Choose a specific card by its location. `slot` is a slot wire name, `index` is the position within that slot. The client can look up the card entry at `slots[slot][index]` in the last `state` message and read its `name` field to render it. |
 | `slot`          | `{"type": "slot", "name": <string>}`                      | Choose a slot. `name` is a slot wire name from the catalog.                                                                          |
 | `weapon_slot`   | `{"type": "weapon_slot", "name": <string>}`               | Choose a weapon slot. `name` is a weapon slot wire name from the catalog.                                                            |
 
