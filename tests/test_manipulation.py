@@ -8,9 +8,8 @@ sequences, plus an integration test for the full simultaneously-driven phase.
 from core.type import PID, Card, CardType, Slot, TextOption, CardOption
 from core.engine import do
 from interact.interpret import run
-from helpers import interp
+from helpers import interp, initial_game
 from cards import food, enemy
-from phase.setup import create_initial_state
 from phase.manipulation import _manipulate, _dump, _post_manipulation
 
 
@@ -20,7 +19,7 @@ class TestDump:
     """_dump: discard or refresh each hand card. Elusive cards auto-refresh."""
 
     def test_discard_all(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         c1, c2 = food(1), food(2)
         p.hand.slot(c1, c2)  # hand order: [c2, c1]
@@ -33,7 +32,7 @@ class TestDump:
         assert c2 in blue_discard.cards
 
     def test_refresh_all(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         c1, c2 = food(3), food(4)
         p.hand.slot(c1, c2)
@@ -46,7 +45,7 @@ class TestDump:
         assert c2 in blue_refresh.cards
 
     def test_mix_discard_and_refresh(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         c1, c2, c3 = food(1), food(2), food(3)
         p.hand.slot(c1, c2, c3)  # hand order: [c3, c2, c1]
@@ -58,7 +57,7 @@ class TestDump:
         assert c1 in g.players[PID.BLUE].discard.cards
 
     def test_elusive_auto_refreshes_without_prompt(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         elusive = Card("elu", "Elusive", "", 1, (CardType.FOOD,), True, False)
         normal = food(2)
@@ -71,7 +70,7 @@ class TestDump:
         assert normal in g.players[PID.BLUE].discard.cards
 
     def test_empty_hand_is_noop(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         run(g, _dump(PID.RED), interp())
         assert g.players[PID.RED].hand.is_empty()
 
@@ -82,7 +81,7 @@ class TestManipulate:
     """_manipulate: swap loop + optional force."""
 
     def test_done_immediately_no_swap(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         mf1, mf2 = food(1), food(2)
         h1 = food(3)
@@ -98,7 +97,7 @@ class TestManipulate:
         assert not forcing['val']
 
     def test_swap_one_card(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         mf1 = food(1)
         h1 = food(9)
@@ -112,7 +111,7 @@ class TestManipulate:
         assert mf1 in p.hand.cards
 
     def test_force_discards_equipment_and_sets_flag(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         mf1 = food(1)
         h1 = food(2)
@@ -133,7 +132,7 @@ class TestManipulate:
         With 2 equipment cards and choice=2, choice-1=1 (correct second card)
         vs choice-2=0 (wrong first card).
         """
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         mf1 = food(1)
         h1 = food(2)
@@ -157,7 +156,7 @@ class TestManipulate:
 class TestPostManipulation:
 
     def test_deals_card_to_opponent_action_field(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         other_p = g.players[PID.BLUE]
 
@@ -172,7 +171,7 @@ class TestPostManipulation:
         assert p.sidebar.is_empty()
 
     def test_refreshes_remaining_when_all_slots_full(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         other_p = g.players[PID.BLUE]
 
@@ -188,7 +187,7 @@ class TestPostManipulation:
         assert len(other_p.refresh.cards) >= 2
 
     def test_force_lets_player_choose_card_to_deal(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         other_p = g.players[PID.BLUE]
 
@@ -209,7 +208,7 @@ class TestPostManipulation:
         This tests for the list-mutation-during-iteration bug:
         `for card in slot.cards` while do(Refresh(...)) removes from that list.
         """
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         p = g.players[PID.RED]
         other_p = g.players[PID.BLUE]
 
@@ -243,7 +242,7 @@ class TestManipulationPhaseIntegration:
         AND that the number of interpreter choices consumed matches the forcing
         path (which has one extra prompt).
         """
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         red = g.players[PID.RED]
         blue = g.players[PID.BLUE]
 
@@ -279,7 +278,7 @@ class TestManipulationPhaseIntegration:
 
     def test_both_dump_empty_hands(self):
         """Both players dump with empty hands; post-manipulation runs cleanly."""
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         initial_red = len(g.players[PID.RED].deck.cards)
         initial_blue = len(g.players[PID.BLUE].deck.cards)
 

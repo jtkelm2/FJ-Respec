@@ -152,6 +152,8 @@ class Serializer:
         }
 
         return {
+            "role": view.role,
+            "alignment": view.alignment,
             "hp": view.hp,
             "slots": slots,
             "current_phase": view.current_phase.name if view.current_phase else None,
@@ -218,6 +220,10 @@ class Accumulator:
             for i, ws in enumerate(p.weapon_slots):
                 self._register_ws(ws, pid, f"ws_{i}")
         self._register_slot(g.guard_deck, None, "guard_deck")
+        # Register every possible role card so clients can look up metadata
+        # regardless of which two are assigned in setup_phase.
+        for factory, _ in g.role_pool:
+            self._register_template(factory())
 
     # Roles whose cards are visible to the owning player
     _CARDS_VISIBLE_OWN = frozenset({

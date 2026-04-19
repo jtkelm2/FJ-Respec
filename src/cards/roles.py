@@ -60,10 +60,14 @@ def food_fighter() -> Card:
                      lambda a: isinstance(a, Eat) and a.player == pid and not passthrough,
                      cb)
 
-    card.traits = [
-        Trait.on_role_assign(card, _wield_swap),
-        Trait.on_role_assign(card, _eat_swap),
-    ]
+    def _setup(pid: PID) -> Effect:
+        def eff(g: GameState) -> Negotiation:
+            g.active_traits.append(_wield_swap(pid))
+            g.active_traits.append(_eat_swap(pid))
+            return; yield  # pragma: no cover
+        return eff
+
+    card.traits = [Trait.on_role_assign(card, _setup)]
     return card
 
 
@@ -95,10 +99,14 @@ def corruption() -> Card:
                      lambda a: isinstance(a, Heal) and a.target == pid,
                      cb)
 
-    card.traits = [
-        Trait.on_role_assign(card, _refresh_heal),
-        Trait.on_role_assign(card, _heal_flip),
-    ]
+    def _setup(pid: PID) -> Effect:
+        def eff(g: GameState) -> Negotiation:
+            g.active_traits.append(_refresh_heal(pid))
+            g.active_traits.append(_heal_flip(pid))
+            return; yield  # pragma: no cover
+        return eff
+
+    card.traits = [Trait.on_role_assign(card, _setup)]
     return card
 
 
@@ -149,10 +157,14 @@ def the_poet() -> Card:
                      lambda a: isinstance(a, Slay) and a.slayer == pid and a.ws is not None,
                      cb)
 
-    card.traits = [
-        Trait.on_role_assign(card, _persuasion),
-        Trait.on_role_assign(card, _weapon_discard),
-        ]
+    def _setup(pid: PID) -> Effect:
+        def eff(g: GameState) -> Negotiation:
+            g.active_traits.append(_persuasion(pid))
+            g.active_traits.append(_weapon_discard(pid))
+            return; yield  # pragma: no cover
+        return eff
+
+    card.traits = [Trait.on_role_assign(card, _setup)]
     return card
 
 
@@ -214,11 +226,17 @@ def the_world_role() -> Card:
         return Trait(f"{card.display_name} (World Death)", TKind.BEFORE,  # pragma: no mutate
                      _is_world_kill, cb)
 
+    def _setup(pid: PID) -> Effect:
+        def eff(g: GameState) -> Negotiation:
+            g.active_traits.append(_world_death_trait(pid))
+            return; yield  # pragma: no cover
+        return eff
+
     card.traits = [
         Trait.while_equipped(card, TKind.REPLACEMENT,
             world_slay_applies,
             slay_redirect_cb),
-        Trait.on_role_assign(card, _world_death_trait),
+        Trait.on_role_assign(card, _setup),
     ]
     return card
 
@@ -250,17 +268,14 @@ def leo() -> Card:
                      cb)
 
 
-    """One-shot: set HP cap to 9 on role assignment."""
-    def _starting_hp(player: PID) -> Effect:
+    def _setup(pid: PID) -> Effect:
         def eff(g: GameState) -> Negotiation:
-            g.players[player].hp_cap = 9
-            yield from do(SetHP(player, 9, "Leo setup"))(g)  # pragma: no mutate
+            g.players[pid].hp_cap = 9
+            g.active_traits.append(_revival_trait(pid))
+            yield from do(SetHP(pid, 9, "Leo setup"))(g)  # pragma: no mutate
         return eff
 
-    card.traits = [
-        Trait.on_role_assign(card, _revival_trait),
-        Trait.on_role_assign_once(card, _starting_hp)
-    ]
+    card.traits = [Trait.on_role_assign(card, _setup)]
     return card
 
 
@@ -275,8 +290,8 @@ def detective() -> Card:
         "On discard: You may look through your entire deck and refresh pile.",  # pragma: no mutate
         None, (CardType.EQUIPMENT,),
     )
-    """Installs a CanCallGuards INTERCEPT modifier on the game state."""
-    def _no_guards_mod(player:PID) -> Effect:
+    def _setup(player: PID) -> Effect:
+        """Install a CanCallGuards INTERCEPT modifier on the game state."""
         def eff(g: GameState) -> Negotiation:
             g.active_modifiers.append(Modifier(
                 f"{card.display_name} (No Guards)",  # pragma: no mutate
@@ -302,7 +317,7 @@ def detective() -> Card:
 
     card.traits = [
         Trait.on_discard(card, discard_cb),
-        Trait.on_role_assign_once(card, _no_guards_mod),
+        Trait.on_role_assign(card, _setup),
     ]
     return card
 

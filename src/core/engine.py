@@ -225,9 +225,12 @@ def _apply_action(action: Action) -> Effect:
                 g.players[player].action_plays_left = 0
             case DecrementActionPlays(player, source):
                 g.players[player].action_plays_left = max(0, g.players[player].action_plays_left - 1)
-            case AssignRoleCard(card, player, source):
-                g.players[player].equipment.slot(card)
-                g._event_log.append(CardMoved(card, None, None, g.players[player].equipment, 0))
+            case AssignRoleCard(card, role, player, source):
+                p = g.players[player]
+                p.role = role
+                p.alignment = role.alignment
+                p.equipment.slot(card)
+                g._event_log.append(CardMoved(card, None, None, p.equipment, 0))
             case DistancePenalty(player, source):
                 yield from do(Damage(player, 3, "distance penalty"))(g)  # pragma: no mutate
             case FlipPriority():
@@ -248,7 +251,7 @@ def _fire_triggers(g: GameState, action: Action, kind: TKind) -> Negotiation:
 
     if len(triggered) > 1:
         pid = _player_to_choose_replacement(g, action)
-        pb = PromptBuilder(f"Order {kind} triggers for {action}:")  # pragma: no mutate
+        pb = PromptBuilder(f"Order {kind} triggers for {action.__class__.__name__}:")  # pragma: no mutate
         for tr in triggered:
             pb.add(TextOption(tr.name))
         response = yield pb.build(pid)

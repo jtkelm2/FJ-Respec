@@ -10,8 +10,7 @@ from core.type import (
 from core.engine import do
 from interact.interpret import run
 from cards import enemy, food, weapon
-from phase.game import game_loop, _settle, _offer_world_claims
-from phase.setup import create_initial_state
+from phase.game import game_loop, _settle, _offer_world_claims, _play_phases
 from helpers import interp, minimal_game, count_all_cards
 
 
@@ -338,7 +337,7 @@ class TestGameLoopIntegration:
             TextOption("Discard"), TextOption("Discard"), TextOption("Discard"), TextOption("Discard"),
         ]
 
-        run(g, game_loop(), interp(*red_choices, blue=blue_choices))
+        run(g, _play_phases(), interp(*red_choices, blue=blue_choices))
         assert g.is_over
         assert g.game_result is not None
         assert g.game_result.outcome == Outcome.EVIL_KILLED_GOOD
@@ -348,7 +347,7 @@ class TestGameLoopIntegration:
         g = minimal_game()
         g.players[PID.RED].alignment = Alignment.GOOD
         g.players[PID.BLUE].alignment = Alignment.GOOD
-        run(g, game_loop(), interp())
+        run(g, _play_phases(), interp())
         assert g.is_over
         assert g.game_result is not None
         assert g.game_result.outcome == Outcome.GOOD_GOOD_MUTUAL_DEATH
@@ -384,7 +383,7 @@ class TestGameLoopIntegration:
             TextOption("Yes"),
         ]
 
-        run(g, game_loop(), interp(*red_choices, blue=blue_choices))
+        run(g, _play_phases(), interp(*red_choices, blue=blue_choices))
         assert g.is_over
         assert g.game_result is not None
         assert g.game_result.outcome == Outcome.MUTUAL_GOOD_WIN

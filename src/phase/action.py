@@ -84,6 +84,8 @@ def _offer_last_resort(pid: PID) -> Effect:
 
 
 def _find_role_card(p: PlayerState) -> Card | None:
+    if p.role is None:
+        return None
     role_name = p.role.name.lower()
     return next(
         (c for c in p.equipment.cards if c.name == role_name),

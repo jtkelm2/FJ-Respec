@@ -18,7 +18,6 @@ from phase.action import (
     _offer_last_resort, _run, _call_guards, _find_role_card,
 )
 DISTANCE_PENALTY = 3
-from phase.setup import create_initial_state
 from helpers import interp, minimal_game, count_all_cards
 
 
@@ -425,6 +424,7 @@ class TestFindRoleCard:
         g = minimal_game()
         rc = role_card(good=True)
         g.players[PID.RED].equipment.slot(rc)
+        g.players[PID.RED].role = Role("Human", Alignment.GOOD)
         assert _find_role_card(g.players[PID.RED]) is rc
 
     def test_returns_none_when_no_role_card(self):
@@ -499,6 +499,7 @@ class TestCallGuards:
         rc = role_card(good=True)
         g.players[PID.RED].equipment.slot(rc)
         g.players[PID.RED].alignment = Alignment.GOOD
+        g.players[PID.RED].role = Role("Human", Alignment.GOOD)
 
         opp_weapon = weapon(5)
         g.players[PID.BLUE].weapon_slots[0]._weapon_slot.slot(opp_weapon)
@@ -688,6 +689,7 @@ class TestOfferLastResortGuards:
         rc = role_card(good=True)
         g.players[PID.RED].equipment.slot(rc)
         g.players[PID.RED].alignment = Alignment.GOOD
+        g.players[PID.RED].role = Role("Human", Alignment.GOOD)
         for _ in range(4):
             g.guard_deck.slot(guard(10))
 

@@ -242,11 +242,6 @@ class Role:
   name:str
   alignment:Alignment
 
-class DefaultRole(Role):
-  def __init__(self,good=True):  # pragma: no mutate
-    self.name = "Human" if good else "???"  # pragma: no mutate
-    self.alignment = Alignment.GOOD if good else Alignment.EVIL  # pragma: no mutate
-
 @dataclass
 class ActionField:
     top_distant: Slot
@@ -271,8 +266,8 @@ class PlayerState:
     hp_cap: int = 20
     hp_floor: int | None = None
     hp_ceiling: int | None = None
-    alignment: Alignment = Alignment.GOOD
-    role: Role = field(default_factory=DefaultRole)
+    alignment: Alignment | None = None
+    role: Role | None = None
 
     # These are initialized in __post_init__ from prefix
     action_field: ActionField = field(init=False)
@@ -323,11 +318,12 @@ class GameResult:
     outcome: Outcome
 
 class Phase(Enum):
+    SETUP = auto()
     REFRESH = auto()
     MANIPULATION = auto()
     ACTION = auto()
 
-WORLD_NAME = "the_world"  # pragma: no mutate
+WORLD_NAME = "major_21"  # pragma: no mutate
 
 @dataclass
 class GameState:
@@ -345,6 +341,11 @@ class GameState:
 
     active_traits: "list[Trait]" = field(default_factory=list)
     active_modifiers: "list[Modifier]" = field(default_factory=list)
+
+    # All role factories available this game. Populated by create_initial_state,
+    # read by the wire catalog (so every possible role card is known to clients)
+    # and by setup_phase (which picks two via g.rng and instantiates them fresh).
+    role_pool: "list[tuple[Callable[[], Card], Role]]" = field(default_factory=list)
 
     # Event log — drained by the interaction layer between state pushes
     _event_log: list["Event"] = field(default_factory=list)
@@ -604,6 +605,7 @@ class AddToKillstack(Action):
 @dataclass
 class AssignRoleCard(Action):
   card: Card
+  role: Role
   player: PID
   source: str = ""  # pragma: no mutate
 
@@ -697,30 +699,19 @@ class Trait:
 
     @staticmethod
     def on_role_assign(card: Card,
-                       permanent_trait_fn: "Callable[[PID], Trait]"):
-        """AFTER AssignRoleCard: install a permanent trait onto g.active_traits."""
+                       setup: "Callable[[PID], Effect]"):
+        """AFTER AssignRoleCard: run a one-time setup Effect when this card
+        becomes a player's role. The setup Effect may install permanent traits
+        onto g.active_traits, execute one-shot actions, or both.
+
+        There should be at most ONE on_role_assign trait per card: multiple
+        traits would force a user-visible ordering prompt during setup."""
         def callback(a: Action) -> Effect:
             assert isinstance(a, AssignRoleCard)
-            def eff(g: GameState) -> Negotiation:
-                g.active_traits.append(permanent_trait_fn(a.player))
-                return; yield  # pragma: no cover
-            return eff
+            return setup(a.player)
         return Trait(f"{card.display_name} (On Role Assign)", TKind.AFTER,  # pragma: no mutate
                      lambda a: isinstance(a, AssignRoleCard) and a.card is card,
                      callback)
-    
-    @staticmethod
-    def on_role_assign_once(card: Card,
-                            one_time_effect: Callable[[PID], Effect]):
-       """AFTER AssignRoleCard: perform a provided effect once."""
-       def callback(a: Action) -> Effect:
-          assert isinstance(a, AssignRoleCard)
-          def eff(g: GameState) -> Negotiation:
-             yield from one_time_effect(a.player)(g)
-          return eff
-       return Trait(f"{card.display_name} (On Role Assign Once)", TKind.AFTER,
-                    lambda a: isinstance(a, AssignRoleCard) and a.card is card,
-                    callback)
 
     @staticmethod
     def on_placement(card: Card,
@@ -882,6 +873,10 @@ class GameEnded(Event):
 
 @dataclass
 class PlayerView:
+    # Identity (set after setup phase)
+    role: str | None
+    alignment: str | None
+
     # Own state (full visibility)
     hp: int
     hand: list[Card]
@@ -917,6 +912,8 @@ def compute_player_view(g: GameState, pid: PID) -> PlayerView:
         weapons.append((ws.weapon, ws.sharpness(), list(ws.killstack.cards)))
 
     return PlayerView(
+        role=p.role.name if p.role is not None else None,
+        alignment=p.alignment.name if p.alignment is not None else None,
         hp=p.hp,
         hand=list(p.hand.cards),
         equipment=list(p.equipment.cards),

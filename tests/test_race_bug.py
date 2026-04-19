@@ -14,7 +14,7 @@ from core.type import PID, PromptHalf, PlayerView, Ask, TextOption, Option
 from core.engine import simultaneously
 from interact.player import Player, OOB
 from interact.interpret import run, AsyncAggregateInterpreter, ViewPushingInterpreter
-from phase.setup import create_initial_state
+from helpers import initial_game
 
 log = logging.getLogger("race_test")
 
@@ -71,7 +71,7 @@ def test_no_duplicate_prompts_in_either_race():
     is reused on the next interpret() call — not duplicated."""
     _setup_log()
 
-    g = create_initial_state(seed=42, vanilla_roles=True)
+    g = initial_game(seed=42)
     red = QueuePlayer("RED")
     blue = QueuePlayer("BLUE")
     players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}

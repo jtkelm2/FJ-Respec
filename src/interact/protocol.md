@@ -23,7 +23,7 @@ Every message — in either direction — is a JSON object with a `"type"` field
 
 ### 1.3 Connection identity
 
-A connection represents one **player** (RED or BLUE) for the duration of one game. The server tells the player which side they are via a `notify` message immediately after the catalog (see §3). There is no separate handshake or authentication step.
+A connection represents one **player** (RED or BLUE) for the duration of one game. Each slot in the catalog is tagged with `owner: "self" | "opponent" | "shared"` relative to the receiving player, so every client knows from the catalog which side it is on. There is no separate handshake or authentication step.
 
 ---
 
@@ -34,22 +34,21 @@ A complete game session, from the perspective of one client, proceeds as follows
 ```
 1. Client opens transport to server.
 2. Server → catalog        (exactly one)
-3. Server → notify         (kind: role_assignment)
-4. ── game loop ──
+3. ── game loop ──
    Server → state          (zero or more, before each prompt)
    Server → notify         (zero or more, at any time)
    Server → prompt         → Client → response
    ...
-5. Server → state          (final state, with game_result populated)
-6. Server → close
-7. Server closes transport.
+4. Server → state          (final state, with game_result populated)
+5. Server → close
+6. Server closes transport.
 ```
 
 ### 2.1 Pre-game phase
 
 The very first server-to-client message of every session MUST be a `catalog`. No other server-to-client message may precede it. The catalog establishes the naming space used by all subsequent messages. A client receiving any other message before a catalog SHOULD treat it as a protocol error.
 
-After the catalog, the server MUST send a `notify` with `kind: "role_assignment"` telling the client their role and side (§3.4.1). This is the canonical way for the client to learn its identity.
+The first in-game phase after the catalog is `SETUP` (see §3.2). During setup, the server assigns each player a role and alignment — the client learns its identity from the next `state` message's `view.role` and `view.alignment` fields, and from the `card_moved` event that places the role card into the player's equipment. Setup MAY also yield prompts (e.g. role-selection menus in future variants); these follow the normal prompt/response protocol.
 
 ### 2.2 Game loop
 
@@ -120,6 +119,8 @@ Per-card fields:
 
 The catalog MAY include cards that the player will never see. Clients MUST NOT infer game state from the catalog — only from `state` messages.
 
+In particular, the catalog includes **every possible role card** (one per role in the game's role pool), even though only two are assigned in any given game. This lets the client resolve role-card names it may encounter through `view.role` or `card_moved` events without needing a later catalog update.
+
 #### 3.1.2 Slot catalog
 
 `slots` is a JSON object keyed by **slot wire name**. Each value is a description with two fields:
@@ -149,6 +150,8 @@ Sent whenever the visible game state for this player has changed. Carries a comp
 {
   "type": "state",
   "view": {
+    "role": "Human",
+    "alignment": "GOOD",
     "hp": 18,
     "slots": {
       "red_hand": [{"name": "food_5", "counters": 0}, {"name": "enemy_3", "counters": 0}, {"name": "weapon_2", "counters": 0}],
@@ -171,11 +174,15 @@ Sent whenever the visible game state for this player has changed. Carries a comp
 
 | Field          | Type                            | Description                                                                                     |
 | -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `role`           | string \| null                  | This player's assigned role name (e.g. `"Human"`, `"Corruption"`). `null` before setup completes. |
+| `alignment`      | string \| null                  | `"GOOD"` or `"EVIL"`. `null` before setup completes.                                            |
 | `hp`             | int                             | This player's current hit points.                                                               |
 | `slots`          | object                          | Slot name → contents. See §3.2.1.                                                               |
-| `current_phase`  | string \| null                  | Current game phase: `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`, or `null` between phases.       |
+| `current_phase`  | string \| null                  | Current game phase: `"SETUP"`, `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`, or `null` between phases. |
 | `priority`       | string                          | `"RED"` or `"BLUE"`. Whose priority it currently is.                                            |
 | `game_result`    | object \| null                  | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.2.    |
+
+The client learns its identity (role, alignment) from the first `state` message that arrives after setup. `view.role` correlates with a card `name` in the `catalog` — the role card placed into the player's equipment at setup has that exact name. See §3.1.1 for how the catalog lists every possible role card, not just the two assigned this game.
 
 Per-weapon-slot info (the wielded weapon card and the kill stack) lives in `slots`, keyed by `<side>_ws_<n>_weapon` (a card list of length 0 or 1) and `<side>_ws_<n>_killstack` (a card list). The set of weapon slot names comes from the `weapon_slots` catalog. Sharpness is a derived value the client computes as `min(weapon.level, killstack[0].level)` (or just `weapon.level` if the killstack is empty).
 
@@ -303,22 +310,9 @@ Receivers MUST tolerate unknown option `type` values by treating them as opaque 
 
 A non-interactive informational message with a structured `kind` subfield.
 
-#### 3.4.1 Role assignment
+#### 3.4.1 Info
 
-Sent once after the catalog. Tells the client their role and side.
-
-```json
-{"type": "notify", "kind": "role_assignment", "role": "Human", "side": "RED"}
-```
-
-| Field  | Type   | Description                        |
-| ------ | ------ | ---------------------------------- |
-| `role` | string | Role name (e.g. `"Human"`, `"???"`). |
-| `side` | string | `"RED"` or `"BLUE"`.               |
-
-#### 3.4.2 Info
-
-Unstructured text catchall for any other notification.
+Unstructured text catchall.
 
 ```json
 {"type": "notify", "kind": "info", "text": "Some message"}
@@ -329,6 +323,8 @@ Unstructured text catchall for any other notification.
 | `text` | string | Free-text message.     |
 
 Clients SHOULD display all notification kinds. Clients MUST NOT respond to any `notify` message. Clients MUST tolerate unknown `kind` values.
+
+> Role and side identity used to be delivered via a `notify` with `kind: "role_assignment"` immediately after the catalog. That notify has been removed: role/alignment now live in `view.role` / `view.alignment` (§3.2) and are revealed by the first `state` message after setup.
 
 ### 3.5 `close`
 

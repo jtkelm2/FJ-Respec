@@ -10,9 +10,8 @@ import pytest
 from core.type import PID, CardType, WeaponSlot, SlotOption, WeaponSlotOption
 from interact.interpret import run
 from combat import resolve_combat, can_use_weapon
-from helpers import interp
+from helpers import interp, initial_game
 from cards import enemy, weapon, food
-from phase.setup import create_initial_state
 
 
 def _armed(sharpness_level):
@@ -33,21 +32,21 @@ class TestFistsCombat:
 
     @pytest.mark.parametrize("enemy_lv", [1, 5, 10, 14])
     def test_fists_damage_equals_enemy_level(self, enemy_lv):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(enemy_lv)
         g.players[PID.RED].hand.slot(e)
         run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
         assert g.players[PID.RED].hp == 20 - enemy_lv
 
     def test_fists_sends_enemy_to_discard(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(3)
         g.players[PID.RED].hand.slot(e)
         run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
         assert e in g.players[PID.RED].discard.cards
 
     def test_fists_lethal_kills_player(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(20)
         g.players[PID.RED].hand.slot(e)
         run(g, resolve_combat(PID.RED, e), interp(SlotOption(g.players[PID.RED].discard)))
@@ -59,7 +58,7 @@ class TestFistsCombat:
 class TestWeaponCombat:
 
     def test_weapon_reduces_damage(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(10)
         g.players[PID.RED].hand.slot(e)
         g.players[PID.RED].weapon_slots = [_armed(7)]
@@ -68,7 +67,7 @@ class TestWeaponCombat:
         assert g.players[PID.RED].hp == 20 - 3  # max(0, 10-7) = 3
 
     def test_weapon_sends_enemy_to_killstack(self):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(5)
         g.players[PID.RED].hand.slot(e)
         ws = _armed(5)
@@ -82,7 +81,7 @@ class TestWeaponCombat:
         (5, 10),                               # oversharp
     ])
     def test_zero_damage_when_sharpness_ge_enemy(self, enemy_lv, sharpness):
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(enemy_lv)
         g.players[PID.RED].hand.slot(e)
         g.players[PID.RED].weapon_slots = [_armed(sharpness)]
@@ -101,7 +100,7 @@ class TestDamageMonotonicity:
         prev_damage = enemy_lv + 1  # sentinel above max possible
 
         for sharp in range(0, enemy_lv + 3):
-            g = create_initial_state(seed=42, vanilla_roles=True)
+            g = initial_game(seed=42)
             e = enemy(enemy_lv)
             g.players[PID.RED].hand.slot(e)
 
@@ -161,7 +160,7 @@ class TestWeaponSlotSelection:
         With 2 weapon slots and choice=2, choice-1=1 (correct) vs choice-2=0 (wrong).
         The two weapons have different sharpness, so damage differs.
         """
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        g = initial_game(seed=42)
         e = enemy(10)
         g.players[PID.RED].hand.slot(e)
 

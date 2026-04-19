@@ -239,8 +239,8 @@ class TestDrainEvents:
 class TestFogOfWarFiltering:
 
     def _setup(self):
-        from phase.setup import create_initial_state
-        g = create_initial_state(seed=42, vanilla_roles=True)
+        from helpers import initial_game
+        g = initial_game(seed=42)
         acc = Accumulator(g)
         ser = acc.serializer()
         return g, ser

@@ -35,15 +35,10 @@ OOB = Resigned | DrawOffered | DrawAccepted | Disconnect
 # ── Notification types ───────────────────────────────────────
 
 @dataclass
-class RoleAssignment:
-    role: str    # e.g. "Human", "???"
-    side: PID    # RED or BLUE
-
-@dataclass
 class Info:
     text: str
 
-Notification = RoleAssignment | Info
+Notification = Info
 
 
 # ── Player contract ──────────────────────────────────────────
@@ -174,8 +169,6 @@ class RemotePlayer(Player):
 
   def notify(self, notification: Notification) -> None:
     match notification:
-      case RoleAssignment(role, side):
-        msg = {"type": "notify", "kind": "role_assignment", "role": role, "side": side.name}
       case Info(text):
         msg = {"type": "notify", "kind": "info", "text": text}
     self.send(msg)

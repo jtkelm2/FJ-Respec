@@ -1,12 +1,16 @@
 import random
 from core.type import *
 from core.engine import do
-from interact.interpret import run, AggregateInterpreter
-from interact.player import ScriptedPlayer
 from cards.roles import GOOD_ROLES, EVIL_ROLES
 from cards.deck import player_deck, guard_deck
 
-def create_initial_state(seed: int | None = None, vanilla_roles: bool = False) -> GameState:
+
+def create_initial_state(seed: int | None = None) -> GameState:
+    """Pure: shuffle decks, seed RNG, pick priority, populate role pool.
+
+    No role assignment, no generator-driven mutations. The role cards
+    are assigned later by setup_phase(), which runs inside the real
+    interpreter so on_role_assign traits can yield prompts."""
     rng = random.Random(seed)  # pragma: no mutate
 
     red_deck  = player_deck()
@@ -17,30 +21,10 @@ def create_initial_state(seed: int | None = None, vanilla_roles: bool = False) -
     rng.shuffle(blue_deck)
     rng.shuffle(guards)
 
-    # Alignment assignment: [Good, Good, Evil], shuffled, first two drawn.
-    # Same probability as before: each player 2/3 Good, 1/3 Evil, at most one Evil.
-    alignments = [Alignment.GOOD, Alignment.GOOD, Alignment.EVIL]  # pragma: no mutate
-    rng.shuffle(alignments)
-    red_alignment  = alignments[0]
-    blue_alignment = alignments[1]
-
-    # Uniform random role within the assigned alignment.
-    def _pick_role(alignment):
-        if vanilla_roles:
-            from cards.roles import role_card
-            return role_card(good=(alignment == Alignment.GOOD)), \
-                   DefaultRole(good=(alignment == Alignment.GOOD))
-        pool = GOOD_ROLES if alignment == Alignment.GOOD else EVIL_ROLES
-        factory, role = rng.choice(pool)
-        return factory(), role
-
-    red_card, red_role   = _pick_role(red_alignment)
-    blue_card, blue_role = _pick_role(blue_alignment)
-
-    red = PlayerState("red", alignment=red_alignment, role=red_role)  # pragma: no mutate
+    red = PlayerState("red")  # pragma: no mutate
     red.deck.slot(*red_deck)
 
-    blue = PlayerState("blue", alignment=blue_alignment, role=blue_role)  # pragma: no mutate
+    blue = PlayerState("blue")  # pragma: no mutate
     blue.deck.slot(*blue_deck)
 
     g = GameState(
@@ -48,12 +32,28 @@ def create_initial_state(seed: int | None = None, vanilla_roles: bool = False) -
         priority=rng.choice([PID.RED, PID.BLUE]),  # pragma: no mutate
         players={PID.RED: red, PID.BLUE: blue},
         guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK, guards),  # pragma: no mutate
-        action_field=ActionField("shared"),
+        action_field=ActionField("shared"),  # pragma: no mutate
+        role_pool=list(GOOD_ROLES + EVIL_ROLES),
     )
 
-    # Assign role cards through the action system so on_role_assign traits fire
-    _noop = AggregateInterpreter(ScriptedPlayer([]), ScriptedPlayer([]))
-    run(g, do(AssignRoleCard(red_card, PID.RED, "setup")), _noop)  # pragma: no mutate
-    run(g, do(AssignRoleCard(blue_card, PID.BLUE, "setup")), _noop)  # pragma: no mutate
-
     return g
+
+
+def setup_phase(picks: dict[PID, tuple[Card, Role]] | None = None) -> Effect:
+    """Decide alignments, pick roles from g.role_pool, dispatch AssignRoleCard.
+
+    If `picks` is provided, it overrides the random selection for the given
+    players — useful for tests and replay-driven setup. Unspecified players
+    still roll randomly using g.rng."""
+    def effect(g: GameState) -> Negotiation:
+        alignments = [Alignment.GOOD, Alignment.GOOD, Alignment.EVIL]  # pragma: no mutate
+        g.rng.shuffle(alignments)
+        for pid, alignment in zip([PID.RED, PID.BLUE], alignments[:2]):  # pragma: no mutate
+            if picks is not None and pid in picks:
+                card, role = picks[pid]
+            else:
+                pool = [(f, r) for f, r in g.role_pool if r.alignment == alignment]
+                factory, role = g.rng.choice(pool)
+                card = factory()
+            yield from do(AssignRoleCard(card, role, pid, "setup"))(g)  # pragma: no mutate
+    return effect

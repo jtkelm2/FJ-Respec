@@ -7,6 +7,7 @@ from core.type import (
 from core.engine import do
 from interact.interpret import run, AggregateInterpreter
 from interact.player import ScriptedPlayer
+from phase.setup import create_initial_state, setup_phase
 
 
 def interp(*red_choices, blue=None):
@@ -28,6 +29,14 @@ def minimal_game(seed=42):
         guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK),
         action_field=ActionField("shared"),
     )
+
+
+def initial_game(seed=42, picks=None):
+    """Post-setup GameState: shuffled decks and roles assigned. For tests that
+    want a realistic starting state. `picks` overrides random role selection."""
+    g = create_initial_state(seed=seed)
+    run(g, setup_phase(picks), AggregateInterpreter(ScriptedPlayer([]), ScriptedPlayer([])))
+    return g
 
 
 def count_all_cards(g):
