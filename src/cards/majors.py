@@ -199,12 +199,10 @@ def the_hermit() -> Card:
         resolver = a.resolver
         def eff(g: GameState) -> Negotiation:
             p = g.players[resolver]
-            pb = (PromptBuilder("The Hermit: Give the other player 1 HP?")  # pragma: no mutate
-                  .add(TextOption("Yes"))  # pragma: no mutate
-                  .add(TextOption("No")))  # pragma: no mutate
-            response = yield pb.build(resolver)
-            if response[resolver] == TextOption("Yes"):
-                yield from do(TransferHP(resolver, other(resolver), 1, "The Hermit"))(g)  # pragma: no mutate
+            response = yield PromptBuilder("The Hermit: Give the other player 1 HP?").yesno().build(resolver) # pragma: no mutate
+            if response[resolver] == TextOption("No"): return
+            
+            yield from do(TransferHP(resolver, other(resolver), 1, "The Hermit"))(g)  # pragma: no mutate
 
             if p.alignment == Alignment.GOOD:
                 equips = list(p.equipment.cards)
