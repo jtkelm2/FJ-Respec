@@ -2,7 +2,7 @@
 
 import random
 from core.type import (
-    GameState, PlayerState, PID, Slot, SlotKind, ActionField,
+    GameState, PlayerState, PID, Slot, SlotKind,
 )
 from core.engine import do
 from interact.interpret import run, AggregateInterpreter
@@ -27,7 +27,6 @@ def minimal_game(seed=42):
         priority=PID.RED,
         players={PID.RED: PlayerState("red"), PID.BLUE: PlayerState("blue")},
         guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK),
-        action_field=ActionField("shared"),
     )
 
 
@@ -53,6 +52,4 @@ def count_all_cards(g):
             total += len(ws._weapon_slot.cards)
             total += len(ws.killstack.cards)
     total += len(g.guard_deck.cards)
-    for s in g.action_field.slots_in_fill_order():
-        total += len(s.cards)
     return total

@@ -116,7 +116,7 @@ class Serializer:
         def _cards(cards: list[Card]) -> list[dict]:
             return [{"name": card.name, "counters": card.counters} for card in cards] # pragma: no mutate
 
-        slots: dict[str, list[str] | int] = {}
+        slots: dict[str, list[dict] | int] = {}
 
         # Own visible slots
         slots[f"{p_pre}_hand"] = _cards(view.hand)

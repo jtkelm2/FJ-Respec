@@ -199,30 +199,57 @@ def _legal_slot_choices(
     return choices
 
 
+def _apparent_slot_choices(
+    pid: PID, g: GameState, actual: list[tuple[Slot, str, bool, bool, bool]]
+) -> list[tuple[Slot, str, bool, bool, bool]]:
+    """Opponent's hidden slots are always offered as choices, even when they
+    are actually illegal — the active player must not be able to infer
+    emptiness or First-ness of the opponent's hidden stacks from the prompt."""
+    actual_slot_ids = {id(c[0]) for c in actual}
+    apparent = list(actual)
+    opp_pid = other(pid)  # pragma: no mutate
+    opp = g.players[opp_pid].action_field
+    _opp_hidden = [
+        (opp.top_hidden, "Opponent top hidden"),  # pragma: no mutate
+        (opp.bottom_hidden, "Opponent bottom hidden"),  # pragma: no mutate
+    ]
+    for slot, label in _opp_hidden:
+        if id(slot) not in actual_slot_ids:
+            apparent.append((slot, label, True, False, True))
+    return apparent
+
+
 # ── Action play ───────────────────────────────────────────────
 
 def _action_play(pid: PID) -> Effect:
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
-        choices = _legal_slot_choices(pid, g)
+        actual = _legal_slot_choices(pid, g)
+        actual_slot_ids = {id(c[0]) for c in actual}
+        has_own_legal = any(not is_opp for _, _, is_opp, _, _ in actual)
 
-        # Fallback: no legal slots anywhere → resolve top of own deck
-        if not choices:
+        # Fallback: no legal slot anywhere → notify, then resolve top of own deck
+        if not actual:
+            notice = PromptBuilder("No legal slots — resolve top of deck.").notify()  # pragma: no mutate
+            yield notice.build(pid)  # pragma: no mutate
             yield from _resolve_top_of_deck(pid)(g)
             return
 
+        apparent = _apparent_slot_choices(pid, g, actual)
+
         while True:
             pb = PromptBuilder("Resolve which slot?")  # pragma: no mutate
-            for s, _, _, _, _ in choices:
+            for s, _, _, _, _ in apparent:
                 pb.add(SlotOption(s))  # pragma: no mutate
             response = yield pb.build(pid)  # pragma: no mutate
             chosen = response[pid]
             assert isinstance(chosen, SlotOption)
             slot = chosen.slot
-            _, _, is_opp, is_dist, _ = next(c for c in choices if c[0] is slot)
+            _, _, is_opp, is_dist, _ = next(c for c in apparent if c[0] is slot)
 
-            # Opponent slots require consent
-            if is_opp:
+            # Opponent slots require consent, unless own field has no legal
+            # options (in which case the opp could otherwise stall by denying).
+            if is_opp and has_own_legal:
                 opp_pid = other(pid)  # pragma: no mutate
                 cpb = (PromptBuilder("Allow opponent to resolve your slot?")  # pragma: no mutate
                        .add(TextOption("Allow"))  # pragma: no mutate
@@ -232,10 +259,18 @@ def _action_play(pid: PID) -> Effect:
                 if consent[opp_pid] == TextOption("Deny"):
                     continue  # denied → re-pick
 
-                if is_dist:
-                    yield from do(DistancePenalty(pid, "distance penalty"))(g)  # pragma: no mutate
-                    if p.is_dead:
-                        return
+            # After consent (or bypass), verify actual legality. The opp's
+            # hidden slots are always offered, so a pick here may still be
+            # illegal. Tell the player and force a re-pick.
+            if id(slot) not in actual_slot_ids:
+                illegal = PromptBuilder("That slot cannot be resolved.").notify()  # pragma: no mutate
+                yield illegal.build(pid)  # pragma: no mutate
+                continue
+
+            if is_opp and is_dist:
+                yield from do(DistancePenalty(pid, "distance penalty"))(g)  # pragma: no mutate
+                if p.is_dead:
+                    return
 
             yield from _resolve_slot(pid, slot)(g)
             return

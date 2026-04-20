@@ -14,7 +14,7 @@ from combat import can_use_weapon
 from cards import enemy, weapon, food, role_card
 from phase.action import (
     action_phase, _resolve_slot,
-    _legal_slot_choices, _action_play,
+    _legal_slot_choices, _apparent_slot_choices, _action_play,
     _offer_last_resort, _run, _call_guards, _find_role_card,
 )
 DISTANCE_PENALTY = 3
@@ -813,14 +813,19 @@ class TestResolveTopOfDeck:
         assert e in g.players[PID.RED].discard.cards
 
     def test_fallback_triggered_when_no_legal_slots(self):
-        """Full integration: _action_play falls back to top-of-deck."""
+        """Full integration: _action_play falls back to top-of-deck.
+
+        The active player is shown a blocking Okay notice before the forced
+        top-of-deck resolution. The leak (opp's hidden slots are illegal) is
+        unavoidable here and explicitly intended.
+        """
         g = minimal_game()
         g.players[PID.RED].hp = 10
         # No cards on any action field — empty choices
         f = food(7)
         g.players[PID.RED].deck.slot(f)
 
-        run(g, _action_play(PID.RED), interp())
+        run(g, _action_play(PID.RED), interp(TextOption("Okay")))
         assert g.players[PID.RED].hp == 17
         assert f in g.players[PID.RED].discard.cards
 
@@ -903,6 +908,241 @@ class TestVoluntaryDiscard:
 
         assert eq1 in g.players[PID.RED].discard.cards
         assert eq2 in g.players[PID.RED].discard.cards
+
+
+# ── _apparent_slot_choices ────────────────────────────────────
+
+class TestApparentSlotChoices:
+    """Opp's hidden slots always appear in the prompt regardless of actual
+    legality, so the active player can't deduce emptiness/First-blocking."""
+
+    def test_empty_opp_hidden_still_in_apparent(self):
+        g = minimal_game()
+        # Give RED a legal own slot so actual is non-empty
+        g.players[PID.RED].action_field.top_distant.slot(enemy(1))
+        actual = _legal_slot_choices(PID.RED, g)
+        apparent = _apparent_slot_choices(PID.RED, g, actual)
+        apparent_slots = [c[0] for c in apparent]
+        assert g.players[PID.BLUE].action_field.top_hidden in apparent_slots
+        assert g.players[PID.BLUE].action_field.bottom_hidden in apparent_slots
+
+    def test_legal_opp_hidden_included_exactly_once(self):
+        g = minimal_game()
+        g.players[PID.BLUE].action_field.top_hidden.slot(enemy(1))
+        actual = _legal_slot_choices(PID.RED, g)
+        apparent = _apparent_slot_choices(PID.RED, g, actual)
+        top_hidden = g.players[PID.BLUE].action_field.top_hidden
+        count = sum(1 for c in apparent if c[0] is top_hidden)
+        assert count == 1
+
+    def test_first_blocked_opp_hidden_in_apparent_not_actual(self):
+        from core.type import Card
+        g = minimal_game()
+        first = Card("boss", "Boss", "", 10, (CardType.ENEMY,), False, True)
+        g.players[PID.BLUE].action_field.top_hidden.slot(first)
+        g.players[PID.RED].first_play_done = True
+        g.players[PID.RED].action_field.top_distant.slot(enemy(1))
+
+        actual = _legal_slot_choices(PID.RED, g)
+        apparent = _apparent_slot_choices(PID.RED, g, actual)
+        opp_top = g.players[PID.BLUE].action_field.top_hidden
+        assert opp_top not in [c[0] for c in actual]
+        assert opp_top in [c[0] for c in apparent]
+
+    def test_own_empty_hidden_not_injected_into_apparent(self):
+        """Only opp hidden gets the always-legal treatment — own is visible
+        to the owner, so there's no information to hide."""
+        g = minimal_game()
+        g.players[PID.RED].action_field.top_distant.slot(enemy(1))
+        actual = _legal_slot_choices(PID.RED, g)
+        apparent = _apparent_slot_choices(PID.RED, g, actual)
+        own_top_hidden = g.players[PID.RED].action_field.top_hidden  # empty
+        assert own_top_hidden not in [c[0] for c in apparent]
+
+    def test_apparent_marks_injected_hidden_as_is_hidden_not_distant(self):
+        g = minimal_game()
+        g.players[PID.RED].action_field.top_distant.slot(enemy(1))
+        actual = _legal_slot_choices(PID.RED, g)
+        apparent = _apparent_slot_choices(PID.RED, g, actual)
+        opp_top = g.players[PID.BLUE].action_field.top_hidden
+        (_, _, is_opp, is_dist, is_hidden) = next(c for c in apparent if c[0] is opp_top)
+        assert is_opp is True
+        assert is_dist is False
+        assert is_hidden is True
+
+
+# ── _action_play: illegal opp-hidden picks ────────────────────
+
+class TestActionPlayHiddenLegality:
+    """Opp hidden slots are offered regardless of legality; attempting to
+    resolve an illegal one results in a blocking notice and re-pick."""
+
+    def test_illegal_opp_hidden_after_consent_shows_notice_and_repicks(self):
+        """Pick empty opp hidden → consent Allow → illegal notice → repick own."""
+        g = minimal_game()
+        e_own = enemy(3)
+        g.players[PID.RED].action_field.top_distant.slot(e_own)
+        opp_top_hidden = g.players[PID.BLUE].action_field.top_hidden  # empty
+        own_slot = g.players[PID.RED].action_field.top_distant
+        before = count_all_cards(g)
+
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_top_hidden),
+            TextOption("Okay"),
+            SlotOption(own_slot),
+            SlotOption(g.players[PID.RED].discard),
+            blue=[TextOption("Allow")],
+        ))
+
+        assert own_slot.is_empty()
+        assert e_own in g.players[PID.RED].discard.cards
+        assert opp_top_hidden.is_empty()
+        assert count_all_cards(g) == before
+        assert g.players[PID.RED].hp == 20 - 3  # no distance penalty on own
+
+    def test_consent_denied_on_illegal_opp_hidden_no_notice(self):
+        """Consent runs before legality. Denial short-circuits the notice."""
+        g = minimal_game()
+        e_own = enemy(3)
+        g.players[PID.RED].action_field.top_distant.slot(e_own)
+        opp_top_hidden = g.players[PID.BLUE].action_field.top_hidden  # empty
+        own_slot = g.players[PID.RED].action_field.top_distant
+
+        # No TextOption("Okay") — if notice fired, second SlotOption would
+        # be consumed as the Okay and later pops would IndexError.
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_top_hidden),
+            SlotOption(own_slot),
+            SlotOption(g.players[PID.RED].discard),
+            blue=[TextOption("Deny")],
+        ))
+
+        assert own_slot.is_empty()
+        assert e_own in g.players[PID.RED].discard.cards
+
+
+# ── _action_play: consent bypass ──────────────────────────────
+
+class TestActionPlayConsentBypass:
+    """When the active player's own field has zero legal slots, consent is
+    bypassed on opp slots to prevent deadlock by repeated denial."""
+
+    def test_bypass_when_own_field_has_no_legal(self):
+        """No blue script entries — any consent prompt would IndexError."""
+        g = minimal_game()
+        e = enemy(3)
+        g.players[PID.BLUE].action_field.top_distant.slot(e)
+        opp_slot = g.players[PID.BLUE].action_field.top_distant
+
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_slot),
+            SlotOption(g.players[PID.RED].discard),
+        ))
+
+        assert opp_slot.is_empty()
+        assert e in g.players[PID.RED].discard.cards
+
+    def test_bypass_still_applies_distance_penalty(self):
+        g = minimal_game()
+        e = enemy(3)
+        g.players[PID.BLUE].action_field.top_distant.slot(e)
+        opp_slot = g.players[PID.BLUE].action_field.top_distant
+
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_slot),
+            SlotOption(g.players[PID.RED].discard),
+        ))
+
+        assert g.players[PID.RED].hp == 20 - DISTANCE_PENALTY - 3
+
+    def test_bypass_on_hidden_slot_no_distance_penalty(self):
+        """Bypass + hidden opp slot: resolves, no distance penalty."""
+        g = minimal_game()
+        e = enemy(3)
+        g.players[PID.BLUE].action_field.top_hidden.slot(e)
+        opp_hidden = g.players[PID.BLUE].action_field.top_hidden
+
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_hidden),
+            SlotOption(g.players[PID.RED].discard),
+        ))
+
+        assert opp_hidden.is_empty()
+        assert g.players[PID.RED].hp == 20 - 3  # no distance penalty
+
+    def test_bypass_path_still_shows_illegal_notice_on_illegal_pick(self):
+        """Even under bypass, picking an illegal opp hidden slot triggers the
+        legality check and re-pick. Tests that legality check is downstream of
+        the consent branch, not inside it."""
+        g = minimal_game()
+        e = enemy(2)
+        g.players[PID.BLUE].action_field.top_distant.slot(e)
+        opp_hidden = g.players[PID.BLUE].action_field.top_hidden  # empty
+        opp_dist = g.players[PID.BLUE].action_field.top_distant
+
+        # blue=[] — bypass means no consent is ever asked.
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_hidden),
+            TextOption("Okay"),
+            SlotOption(opp_dist),
+            SlotOption(g.players[PID.RED].discard),
+        ))
+
+        assert opp_dist.is_empty()
+        assert e in g.players[PID.RED].discard.cards
+        assert g.players[PID.RED].hp == 20 - DISTANCE_PENALTY - 2
+
+    def test_consent_still_required_when_own_has_legal(self):
+        """Regression: consent path still exists when own has a legal slot."""
+        g = minimal_game()
+        e_own = enemy(3)
+        e_opp = enemy(1)
+        g.players[PID.RED].action_field.top_distant.slot(e_own)
+        g.players[PID.BLUE].action_field.top_distant.slot(e_opp)
+        opp_slot = g.players[PID.BLUE].action_field.top_distant
+
+        # If consent were bypassed, Deny would remain on BLUE's script and
+        # the missing consent prompt wouldn't consume it; RED would resolve
+        # opp slot instead of own. Assert the opposite happens.
+        run(g, _action_play(PID.RED), interp(
+            SlotOption(opp_slot),
+            SlotOption(g.players[PID.RED].action_field.top_distant),
+            SlotOption(g.players[PID.RED].discard),
+            blue=[TextOption("Deny")],
+        ))
+        assert e_opp in opp_slot.cards  # not resolved
+        assert e_own in g.players[PID.RED].discard.cards
+
+
+# ── _action_play: all-illegal fallback ────────────────────────
+
+class TestAllIllegalFallback:
+
+    def test_fallback_shows_okay_before_top_of_deck(self):
+        g = minimal_game()
+        g.players[PID.RED].hp = 10
+        f = food(5)
+        g.players[PID.RED].deck.slot(f)
+
+        run(g, _action_play(PID.RED), interp(TextOption("Okay")))
+        assert g.players[PID.RED].hp == 15
+        assert f in g.players[PID.RED].discard.cards
+
+    def test_fallback_does_not_prompt_opp(self):
+        """BLUE must not be prompted during the forced top-of-deck flow."""
+        g = minimal_game()
+        f = food(5)
+        g.players[PID.RED].deck.slot(f)
+        # blue=[] — any BLUE prompt would IndexError
+        run(g, _action_play(PID.RED), interp(TextOption("Okay")))
+        assert f in g.players[PID.RED].discard.cards
+
+    def test_fallback_conserves_cards(self):
+        g = minimal_game()
+        g.players[PID.RED].deck.slot(food(3))
+        before = count_all_cards(g)
+        run(g, _action_play(PID.RED), interp(TextOption("Okay")))
+        assert count_all_cards(g) == before
 
 
 # ── count_all_cards with weapons ──────────────────────────────
