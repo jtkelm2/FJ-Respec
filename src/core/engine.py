@@ -4,7 +4,7 @@ from core.type import *
 def do(action: Action) -> Effect:
     def effect(g: GameState) -> Negotiation:
         # Instead-of: find an applicable replacement and delegate to it.
-        candidates = [ tr for tr in _get_triggers(g, action) if tr.kind == TKind.REPLACEMENT ]
+        candidates = [ tr for tr in _get_triggers(g, action) if tr.kind == TKind.REPLACEMENT and tr.name not in action.excluded_traits]
         if candidates:
           if len(candidates) == 1:
             chosen = candidates[0]

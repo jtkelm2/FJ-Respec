@@ -1,4 +1,4 @@
-from core.type import PID, Action, AddToKillstack, Discard
+from core.type import PID, Action, AddToKillstack, Card, Discard, GameState
 
 
 def _kill_slayer(a: Action) -> PID:
@@ -15,3 +15,8 @@ def _const(val):
             return val; yield  # pragma: no cover
         return eff
     return cb
+
+def _equipped_by(g:GameState, card:Card) -> PID | None:
+    for player in PID:
+        if card.slot is g.players[player].equipment: return player
+    return None

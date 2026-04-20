@@ -17,7 +17,7 @@ def the_fool() -> Card:
     card = Card(
         "major_0", "The Fool",  # pragma: no mutate
         "On resolve: Look at the top card of the deck and resolve it.",  # pragma: no mutate
-        None, (CardType.EVENT,), False, False,
+        None, (CardType.EVENT,), is_elusive=True
     )
     def callback(a: Action) -> Effect:
         assert isinstance(a, Resolve)
@@ -27,6 +27,8 @@ def the_fool() -> Card:
             yield from do(EnsureDeck(resolver, "the Fool"))(g)  # pragma: no mutate
             if p.is_dead: return
             yield from do(Slot2Slot(p.deck, p.sidebar, "the Fool"))(g)  # pragma: no mutate
+            pb = PromptBuilder("").add(TextOption("Resolve"))
+            yield pb.build(resolver)
             top = p.sidebar.cards[0]
             yield from do(Resolve(resolver, top, "the Fool"))(g)  # pragma: no mutate
         return effect
@@ -91,13 +93,18 @@ def strength() -> Card:
         "As a weapon: Every time this kills an enemy: Discard the enemy, then the "  # pragma: no mutate
         "other player rolls a d20 and declares the result. If the result is 10 or "  # pragma: no mutate
         "less, place a counter on this. For Good only, this has -1 level per counter.",  # pragma: no mutate
-        8, (CardType.EQUIPMENT, CardType.WEAPON), False, False,
+        8, (CardType.EQUIPMENT,), False, False,
     )
-    # While equipped: discard → wield instead
+    # While equipped: may discard → wield instead
     def equip_discard_cb(a: Action) -> Effect:
-        assert isinstance(a, Discard)
         def eff(g: GameState) -> Negotiation:
-            yield from do(Wield(a.discarder, card, "Strength"))(g)  # pragma: no mutate
+            assert isinstance(a, Discard) and card.slot is not None and card.slot.owner is not None
+            pid = card.slot.owner
+            response = yield PromptBuilder("Wield Strength as a weapon?").add(TextOption("Yes")).add(TextOption("No")).build(pid)
+            if response[pid] == TextOption("Yes"):
+                yield from do(Wield(a.discarder, card, "Strength"))(g)  # pragma: no mutate
+            else:
+                yield from do(a.exclude(f"{card.display_name} (While Equipped)"))(g) # TODO: Maybe moving these yes/no logic choices into `applies` is better
         return eff
 
     # As a weapon: on kill, discard enemy + opponent d20 + counter
@@ -339,27 +346,22 @@ def the_chariot() -> Card:
             yield from do(Equip(resolver, card, "The Chariot"))(g)  # pragma: no mutate
         return eff
 
-    chariot_passthrough = False
     def chariot_applies(a: Action) -> bool:
-        if chariot_passthrough: return False
-        return isinstance(a, Damage) and a.amount > 0
+        if card.slot is None: return False
+        return isinstance(a, Damage) and a.amount > 0 and a.target is card.slot.owner
 
     def damage_cb(a: Action) -> Effect:
-        assert isinstance(a, Damage)
+        assert isinstance(a, Damage) and card.slot is not None and card.slot.owner is not None
+        pid = card.slot.owner
         def eff(g: GameState) -> Negotiation:
-            nonlocal chariot_passthrough
-            for pid in PID:
-                if card.slot is g.players[pid].equipment:
-                    pb = (PromptBuilder(f"The Chariot: Discard to prevent {a.amount} damage?")  # pragma: no mutate
-                          .add(TextOption("Prevent"))  # pragma: no mutate
-                          .add(TextOption("Take damage")))  # pragma: no mutate
-                    response = yield pb.build(pid)
-                    if response[pid] == TextOption("Prevent"):
-                        yield from do(Discard(pid, card, "The Chariot"))(g)  # pragma: no mutate
-                    else:
-                        chariot_passthrough = True
-                        yield from do(a)(g)
-                        chariot_passthrough = False
+            pb = (PromptBuilder(f"The Chariot: Discard to prevent {a.amount} damage?")  # pragma: no mutate
+                  .add(TextOption("Prevent"))  # pragma: no mutate
+                  .add(TextOption("Take damage")))  # pragma: no mutate
+            response = yield pb.build(pid)
+            if response[pid] == TextOption("Prevent"):
+                yield from do(Discard(pid, card, "The Chariot"))(g)  # pragma: no mutate
+            else:
+                yield from do(a.exclude(f"{card.display_name} (While Equipped)"))(g)
         return eff
 
     card.traits = [
@@ -408,7 +410,7 @@ def death_card() -> Card:
     card = Card(
         "major_13", "Death",  # pragma: no mutate
         "On resolve: Discard all adjacent action cards. Your Action Phase ends now.",  # pragma: no mutate
-        None, (CardType.EVENT,), False, False,
+        None, (CardType.EVENT,), is_first=True
     )
     def callback(a: Action) -> Effect:
         assert isinstance(a, Resolve)
@@ -432,7 +434,7 @@ def the_tower() -> Card:
     card = Card(
         "major_16", "The Tower",  # pragma: no mutate
         "On resolve: You die!",  # pragma: no mutate
-        None, (CardType.EVENT,), True, False,  # Elusive
+        None, (CardType.EVENT,), is_elusive=True
     )
     def callback(a: Action) -> Effect:
         assert isinstance(a, Resolve)
@@ -453,7 +455,7 @@ def judgement() -> Card:
         "major_20", "Judgement",  # pragma: no mutate
         "While equipped: You may discard this to wield it as a weapon.\n"  # pragma: no mutate
         "As a weapon: Discards after one use.",  # pragma: no mutate
-        20, (CardType.EQUIPMENT, CardType.WEAPON), False, False,
+        20, (CardType.EQUIPMENT,),
     )
     # While equipped: discard → wield instead
     def equip_discard_cb(a: Action) -> Effect:
@@ -491,7 +493,7 @@ def the_world() -> Card:
     return Card(
         WORLD_NAME, "The World",  # pragma: no mutate
         "After death: If both copies of this card are dead, then two Good players may claim victory!",  # pragma: no mutate
-        21, (CardType.ENEMY,), True, False,  # Elusive
+        21, (CardType.ENEMY,), is_elusive=True
     )
 
 
@@ -567,7 +569,7 @@ def temperance() -> Card:
         "major_14", "Temperance",  # pragma: no mutate
         "On kill: Heal 5.\n"  # pragma: no mutate
         "After death: At any point, you may give any amount of your own HP to the other player.",  # pragma: no mutate
-        14, (CardType.ENEMY,), True,  # Elusive
+        14, (CardType.ENEMY,), is_elusive=True
     )
     def kill_cb(a: Action) -> Effect:
         def eff(g: GameState) -> Negotiation:
@@ -590,8 +592,9 @@ def the_star() -> Card:
         "major_17", "The Star",  # pragma: no mutate
         "While equipped: When you die, discard this and revive to d4 HP. "  # pragma: no mutate
         "Place all your action cards into refresh. Your Action Phase is over.",  # pragma: no mutate
-        None, (CardType.EQUIPMENT,),
+        None, (CardType.EQUIPMENT,), is_elusive=True, is_first=True
     )
+
     def death_cb(a: Action) -> Effect:
         assert isinstance(a, DeathAction)
         pid = a.target
@@ -605,9 +608,11 @@ def the_star() -> Card:
                     yield from do(Refresh(c, pid, "The Star"))(g)  # pragma: no mutate
             yield from do(EndActionPhase(pid, "The Star"))(g)  # pragma: no mutate
         return eff
+    
     card.traits = [Trait.while_equipped(card, TKind.REPLACEMENT,
         lambda a: isinstance(a, DeathAction) and _card_belongs_to(card, a.target),
         death_cb)]
+    
     return card
 
 
@@ -620,7 +625,7 @@ def the_moon() -> Card:
         "major_18", "The Moon",  # pragma: no mutate
         "After death: At the start of each Refresh Phase, record your HP. "  # pragma: no mutate
         "Until next Refresh Phase, your HP may not deviate more than 10 from that amount.",  # pragma: no mutate
-        18, (CardType.ENEMY,), True,  # Elusive
+        18, (CardType.ENEMY,), is_elusive=True
     )
     from core.type import StartPhase
 

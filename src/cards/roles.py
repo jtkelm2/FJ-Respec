@@ -32,32 +32,27 @@ def food_fighter() -> Card:
         None, (CardType.EQUIPMENT,),
     )
 
-    passthrough: bool = False
+    nameWE = f"{card.display_name} (Wield→Eat)"
+    nameEW = f"{card.display_name} (Eat→Wield)"
 
     def _wield_swap(pid: PID) -> Trait:
         def cb(a: Action) -> Effect:
             assert isinstance(a, Wield)
             def eff(g:GameState) -> Negotiation:
-              nonlocal passthrough
-              passthrough = True
-              yield from do(Eat(a.player, a.card, "Foo(d) Fighter"))(g)
-              passthrough = False
+              yield from do(Eat(a.player, a.card, "Foo(d) Fighter").exclude(nameEW))(g)
             return eff
-        return Trait(f"{card.display_name} (Wield→Eat)", TKind.REPLACEMENT,  # pragma: no mutate
-                     lambda a: isinstance(a, Wield) and a.player == pid and not passthrough,
+        return Trait(nameWE, TKind.REPLACEMENT,  # pragma: no mutate
+                     lambda a: isinstance(a, Wield) and a.player == pid,
                      cb)
 
     def _eat_swap(pid: PID) -> Trait:
         def cb(a: Action) -> Effect:
             assert isinstance(a, Eat)
             def eff(g:GameState) -> Negotiation:
-                nonlocal passthrough
-                passthrough = True
-                yield from do(Wield(a.player, a.card, "Foo(d) Fighter"))(g)
-                passthrough = False
+                yield from do(Wield(a.player, a.card, "Foo(d) Fighter").exclude(nameWE))(g)
             return eff
-        return Trait(f"{card.display_name} (Eat→Wield)", TKind.REPLACEMENT,  # pragma: no mutate
-                     lambda a: isinstance(a, Eat) and a.player == pid and not passthrough,
+        return Trait(nameEW, TKind.REPLACEMENT,  # pragma: no mutate
+                     lambda a: isinstance(a, Eat) and a.player == pid,
                      cb)
 
     def _setup(pid: PID) -> Effect:
@@ -122,26 +117,23 @@ def the_poet() -> Card:
         None, (CardType.EQUIPMENT,),
     )
 
-    passthrough: bool = False
+    name = "Permanent Poet ability"
 
     def _persuasion(pid: PID) -> Trait:
         def cb(a: Action) -> Effect:
             def eff(g: GameState) -> Negotiation:
                 assert isinstance(a, Resolve)
-                response = yield PromptBuilder(f"Refresh enemy {card.display_name}?").add(TextOption("Yes")).add(TextOption("No")).build(pid)
-                if response == TextOption("Yes"):
+                response = yield PromptBuilder(f"Refresh enemy {a.card.display_name}?").add(TextOption("Yes")).add(TextOption("No")).build(pid)
+                if response[pid] == TextOption("Yes"):
                     yield from do(Refresh(a.card, pid, "Refresh (Poet ability)"))(g)
                 else:
-                    nonlocal passthrough
-                    passthrough = True
-                    yield from do(a)(g)
-                    passthrough = False
+                    yield from do(a.exclude(name))(g)
             return eff
         
         def _non_guard_enemy_resolve(a: Action) -> bool:
             return isinstance(a, Resolve) and a.card.is_type(CardType.ENEMY) and not a.card.name.startswith("guard_")
         
-        return Trait(f"Permanent Poet ability", TKind.REPLACEMENT, _non_guard_enemy_resolve, cb)
+        return Trait(name, TKind.REPLACEMENT, _non_guard_enemy_resolve, cb)
             
 
     def _weapon_discard(pid: PID) -> Trait:
@@ -181,16 +173,16 @@ def the_world_role() -> Card:
         "place it in the other player's refresh pile.",  # pragma: no mutate
         None, (CardType.EQUIPMENT,),
     )
-    # While equipped: optional slay redirect (uses passthrough pattern)
-    world_slay_passthrough = False
+
+    name = f"{card.display_name} (World Death)"
+
+    # While equipped: optional slay redirect
     def world_slay_applies(a: Action) -> bool:
-        if world_slay_passthrough: return False
         return isinstance(a, Slay) and not a.enemy.name.startswith("guard_")
 
     def slay_redirect_cb(a: Action) -> Effect:
         assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            nonlocal world_slay_passthrough
             opp = other(a.slayer)
             pb = (PromptBuilder("The World: Refresh enemy to opponent instead of killing?")  # pragma: no mutate
                   .add(TextOption("Kill normally"))  # pragma: no mutate
@@ -199,9 +191,7 @@ def the_world_role() -> Card:
             if response[a.slayer] == TextOption("Refresh to opponent"):
                 yield from do(Refresh(a.enemy, opp, "The World role"))(g)  # pragma: no mutate
             else:
-                world_slay_passthrough = True
-                yield from do(a)(g)
-                world_slay_passthrough = False
+                yield from do(a.exclude(name))(g)
         return eff
 
     # Permanent: If The World dies on your action field, so do you
@@ -223,7 +213,7 @@ def the_world_role() -> Card:
                 if any(killed_card.slot is s for s in af_slots):
                     yield from do(DeathAction(pid, "The World role"))(g)
             return eff
-        return Trait(f"{card.display_name} (World Death)", TKind.BEFORE,  # pragma: no mutate
+        return Trait(name, TKind.BEFORE,  # pragma: no mutate
                      _is_world_kill, cb)
 
     def _setup(pid: PID) -> Effect:
@@ -257,11 +247,11 @@ def leo() -> Card:
             assert isinstance(a, DeathAction)
             def eff(g: GameState) -> Negotiation:
                 p = g.players[pid]
-                p.hp_cap -= 1
-                if p.hp_cap <= 0:
+                p.hp_ceiling -= 1
+                if p.hp_ceiling <= 0:
                     p.is_dead = True
                     return
-                yield from do(SetHP(pid, p.hp_cap, "Leo"))(g)  # pragma: no mutate
+                yield from do(SetHP(pid, p.hp_ceiling, "Leo"))(g)  # pragma: no mutate
             return eff
         return Trait(f"{card.display_name} (Revival)", TKind.REPLACEMENT,  # pragma: no mutate
                      lambda a: isinstance(a, DeathAction) and a.target == pid,
@@ -270,7 +260,7 @@ def leo() -> Card:
 
     def _setup(pid: PID) -> Effect:
         def eff(g: GameState) -> Negotiation:
-            g.players[pid].hp_cap = 9
+            g.players[pid].hp_ceiling = 9
             g.active_traits.append(_revival_trait(pid))
             yield from do(SetHP(pid, 9, "Leo setup"))(g)  # pragma: no mutate
         return eff

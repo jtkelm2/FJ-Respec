@@ -51,11 +51,13 @@ class SlotKind(Enum):
 class Slot:
   name: str
   kind: SlotKind
+  owner: PID | None
   _cards: list[Card]
 
-  def __init__(self, name: str, kind: SlotKind, cards: list[Card] | None = None):
+  def __init__(self, name: str, kind: SlotKind, owner: PID | None = None, cards: list[Card] | None = None):
     self.name = name
     self.kind = kind
+    self.owner = owner
     self._cards = []
     if cards is not None: self.slot(*cards)
   
@@ -98,10 +100,10 @@ class WeaponSlot:
   _weapon_slot: Slot
   killstack: Slot
 
-  def __init__(self, name: str):
+  def __init__(self, name: str, owner:PID):
     self.name = name
-    self._weapon_slot = Slot(f"{name}_weapon", SlotKind.WEAPON)
-    self.killstack = Slot(f"{name}_killstack", SlotKind.KILLSTACK)
+    self._weapon_slot = Slot(f"{name}_weapon", SlotKind.WEAPON, owner)
+    self.killstack = Slot(f"{name}_killstack", SlotKind.KILLSTACK, owner)
 
   @property
   def weapon(self) -> Card | None:
@@ -218,6 +220,12 @@ class PromptBuilder:
 
   def build(self, pid: PID) -> Prompt:
     return Prompt({pid: self._half()}, PKind.EITHER)  # pragma: no mutate
+  
+  def notify(self):
+    return self.add(TextOption("Okay"))
+  
+  def yesno(self):
+    return self.add(TextOption("Yes")).add(TextOption("No"))
 
   @staticmethod
   def both(*builders: "PromptBuilder") -> Prompt:
@@ -249,23 +257,23 @@ class ActionField:
     top_hidden: Slot
     bottom_hidden: Slot
 
-    def __init__(self, prefix: str):
-      self.top_distant = Slot(f"{prefix}_action_field_top_distant", SlotKind.ACTION_FIELD)
-      self.bottom_distant = Slot(f"{prefix}_action_field_bottom_distant", SlotKind.ACTION_FIELD)
-      self.top_hidden = Slot(f"{prefix}_action_field_top_hidden", SlotKind.ACTION_FIELD)
-      self.bottom_hidden = Slot(f"{prefix}_action_field_bottom_hidden", SlotKind.ACTION_FIELD)
+    def __init__(self, pid: PID):
+      prefix = "red" if pid is PID.RED else "blue"
+      self.top_distant = Slot(f"{prefix}_action_field_top_distant", SlotKind.ACTION_FIELD, owner = pid)
+      self.bottom_distant = Slot(f"{prefix}_action_field_bottom_distant", SlotKind.ACTION_FIELD, owner = pid)
+      self.top_hidden = Slot(f"{prefix}_action_field_top_hidden", SlotKind.ACTION_FIELD, owner = pid)
+      self.bottom_hidden = Slot(f"{prefix}_action_field_bottom_hidden", SlotKind.ACTION_FIELD, owner = pid)
 
     def slots_in_fill_order(self) -> list[Slot]:
       return [self.top_distant, self.top_hidden, self.bottom_hidden, self.bottom_distant]
 
 @dataclass
 class PlayerState:
-    prefix: str  # e.g. "red", "blue" — used to name child slots
+    pid: PID
 
     hp: int = 20
-    hp_cap: int = 20
     hp_floor: int | None = None
-    hp_ceiling: int | None = None
+    hp_ceiling: int = 20
     alignment: Alignment | None = None
     role: Role | None = None
 
@@ -287,15 +295,15 @@ class PlayerState:
     action_plays_left: int = 3
 
     def __post_init__(self):
-        p = self.prefix
-        self.action_field = ActionField(p)
-        self.deck = Slot(f"{p}_deck", SlotKind.DECK)
-        self.refresh = Slot(f"{p}_refresh", SlotKind.REFRESH)
-        self.discard = Slot(f"{p}_discard", SlotKind.DISCARD)
-        self.hand = Slot(f"{p}_hand", SlotKind.HAND)
-        self.sidebar = Slot(f"{p}_sidebar", SlotKind.SIDEBAR)
-        self.equipment = Slot(f"{p}_equipment", SlotKind.EQUIPMENT)
-        self.weapon_slots = [WeaponSlot(f"{p}_ws_0")]
+        p = "red" if self.pid is PID.RED else "blue"
+        self.action_field = ActionField(self.pid)
+        self.deck = Slot(f"{p}_deck", SlotKind.DECK, owner=self.pid)
+        self.refresh = Slot(f"{p}_refresh", SlotKind.REFRESH, owner=self.pid)
+        self.discard = Slot(f"{p}_discard", SlotKind.DISCARD, owner=self.pid)
+        self.hand = Slot(f"{p}_hand", SlotKind.HAND, owner=self.pid)
+        self.sidebar = Slot(f"{p}_sidebar", SlotKind.SIDEBAR, owner=self.pid)
+        self.equipment = Slot(f"{p}_equipment", SlotKind.EQUIPMENT, owner=self.pid)
+        self.weapon_slots = [WeaponSlot(f"{p}_ws_0", owner=self.pid)] 
 
     # Flags
     is_dead: bool = False
@@ -337,7 +345,6 @@ class GameState:
 
     # Shared
     guard_deck: Slot = field(default_factory=lambda: Slot("guard_deck", SlotKind.GUARD_DECK))
-    action_field: ActionField = field(default_factory=lambda: ActionField("shared"))
 
     active_traits: "list[Trait]" = field(default_factory=list)
     active_modifiers: "list[Modifier]" = field(default_factory=list)
@@ -419,9 +426,12 @@ type TypedEffect[T] = Callable[[GameState], TypedNegotiation[T]]
 
 ############# Actions ########
 
-@dataclass
 class Action:
-  pass
+  excluded_traits: list[str] = []
+
+  def exclude(self, trait_name: str):
+     self.excluded_traits.append(trait_name)
+     return self
 
 @dataclass
 class SetHP(Action):
@@ -467,13 +477,13 @@ class Refresh(Action):
 
 @dataclass
 class EnsureDeck(Action):
-   player: PID
-   source: str = ""  # pragma: no mutate
+  player: PID
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class Shuffle(Action):
-   slot: Slot
-   source: str = ""  # pragma: no mutate
+  slot: Slot
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class ShuffleRefreshIntoDeck(Action):
@@ -488,23 +498,23 @@ class Draw(Action):
 
 @dataclass
 class Slot2Slot(Action):
-   orig: Slot
-   dest: Slot
-   source: str = ""  # pragma: no mutate
-   source_index: int = 0
-   dest_index: int = 0
+  orig: Slot
+  dest: Slot
+  source: str = ""  # pragma: no mutate
+  source_index: int = 0
+  dest_index: int = 0
 
 @dataclass
 class Slot2SlotAll(Action):
-   orig: Slot
-   dest: Slot
-   source: str = ""  # pragma: no mutate
+  orig: Slot
+  dest: Slot
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class SlotCard(Action):
-   card: Card
-   slot: Slot
-   source: str = ""  # pragma: no mutate
+  card: Card
+  slot: Slot
+  source: str = ""  # pragma: no mutate
 
 @dataclass
 class TransferHP(Action):
@@ -622,12 +632,13 @@ class FlipPriority(Action):
 
 def would_kill_enemy(action: Action, enemy: Card) -> bool:
     """True if this action represents killing `enemy`. Covers both
-    AddToKillstack (weapon kills) and Discard of an enemy card."""
+    AddToKillstack (weapon kills) and Discard of an enemy card from
+    the action Field."""
     match action:
         case AddToKillstack(e, _, _, _) if e is enemy:
             return True
         case Discard(_, c, _) if c is enemy:
-            return enemy.is_type(CardType.ENEMY)
+            return enemy.is_type(CardType.ENEMY) and enemy.slot is not None and enemy.slot.kind is SlotKind.ACTION_FIELD
     return False
 
 ############ Traits ##############################
@@ -693,8 +704,9 @@ class Trait:
     @staticmethod
     def slays_enemy(card: Card, kind: TKind,
                     callback: Callable[[Action], Effect]):
-        return Trait.as_a_weapon(card, kind,
-                     lambda a: isinstance(a, Slay) and a.ws is not None,
+        return Trait(f"{card.display_name} (As A Weapon, On Slay)", kind,
+                     lambda a: isinstance(a, Slay) and a.ws is not None and a.ws.weapon is card and
+                     card.slot is not None and card.slot.owner is a.slayer,
                      callback)
 
     @staticmethod

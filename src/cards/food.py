@@ -1,5 +1,5 @@
 from core.type import (
-    Card, CardType, Trait, TKind, PID, Phase,
+    Card, CardType, Slay, Trait, TKind, PID, Phase,
     Action, Eat, Damage, Heal, Discard, Equip, Wield,
     Resolve, EndPhase, AddCounter,
     Effect, GameState, Negotiation,
@@ -63,39 +63,36 @@ def food_3() -> Card:
 
     # AS_A_WEAPON: on-kill discard the enemy (instead of killstack)
     def kill_cb(a: Action) -> Effect:
-        from core.type import Slay
         assert isinstance(a, Slay)
         def eff(g: GameState) -> Negotiation:
-            if a.ws is not None:
-                for c in list(a.ws.killstack.cards):
-                    yield from do(Discard(a.slayer, c, "Saltine Shuriken"))(g)  # pragma: no mutate
+            yield from do(Discard(a.slayer, a.enemy, "Saltine Shuriken"))(g)  # pragma: no mutate
         return eff
-
-    # ON_DISCARD: may eat this
-    def discard_cb(a: Action) -> Effect:
+    
+    def offer_to_eat(a: Action) -> Effect:
         assert isinstance(a, Discard)
         discarder = a.discarder
         def eff(g: GameState) -> Negotiation:
-            pb = (PromptBuilder("Saltine Shuriken discarded. Eat it?")  # pragma: no mutate
+            pb = (PromptBuilder("Eat Saltine Shuriken?")  # pragma: no mutate
                   .add(TextOption("Yes"))  # pragma: no mutate
                   .add(TextOption("No")))  # pragma: no mutate
             response = yield pb.build(discarder)
             if response[discarder] == TextOption("Yes"):
                 yield from do(Eat(discarder, card, "Saltine Shuriken eat"))(g)  # pragma: no mutate
+            else:
+                a.source = "Saltine Shuriken eating declined" # TODO: Sources need to be additive, not replacing
+                yield from do(a)(g)
         return eff
 
     card.traits = [
         Trait.on_resolve(card, resolve_cb).instead(),
-        Trait.as_a_weapon(card, TKind.AFTER,
-            lambda a: isinstance(a, __import__('core.type', fromlist=['Slay']).Slay) and a.enemy is not card,
+        Trait.as_a_weapon(card, TKind.REPLACEMENT,
+            lambda a: isinstance(a, Slay) and a.ws is not None and a.ws.weapon is card,
             kill_cb),
-        Trait.on_discard(card, discard_cb),
+        Trait.as_a_weapon(card, TKind.REPLACEMENT,
+            lambda a: isinstance(a, Discard) and a.card is card and card.slot is not None and card.slot.owner is a.discarder and a.source != "food consumed",
+            offer_to_eat)
     ]
-    # Fix the as_a_weapon applies to avoid the import hack
-    from core.type import Slay
-    card.traits[1] = Trait.as_a_weapon(card, TKind.AFTER,
-        lambda a: isinstance(a, Slay),
-        kill_cb)
+
     return card
 
 
@@ -107,16 +104,19 @@ def food_7() -> Card:
         "food_7", "Fat Sandwich (7)",  # pragma: no mutate
         "On resolve: Equip this instead of eating it.\n"  # pragma: no mutate
         "While equipped: You may discard this to eat this.",  # pragma: no mutate
-        7, (CardType.FOOD,), False, False,
+        7, (CardType.EQUIPMENT,), False, False,
     )
-    # ON_RESOLVE REPLACEMENT: equip instead of eat
-    def resolve_cb(a: Action) -> Effect:
-        assert isinstance(a, Resolve)
-        def eff(g: GameState) -> Negotiation:
-            yield from do(Equip(a.resolver, card, "Fat Sandwich"))(g)  # pragma: no mutate
+    
+    def _eat_this(_:Action) -> Effect:
+        def eff(g:GameState):
+            assert card.slot is not None and card.slot.owner is not None
+            owner = card.slot.owner
+            yield from do(Eat(owner, card, "Eaten on discard (Fat Sandwich)"))(g)
         return eff
 
-    card.traits = [Trait.on_resolve(card, resolve_cb).instead()]
+    card.traits = [Trait.while_equipped(card, TKind.REPLACEMENT,
+                                        lambda a: isinstance(a, Discard) and a.card is card,
+                                        _eat_this)]
     return card
 
 

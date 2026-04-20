@@ -26,13 +26,12 @@ def weapon_1() -> Card:
     def discard_cb(a: Action) -> Effect:
         assert isinstance(a, Discard)
         def eff(g: GameState) -> Negotiation:
-            if card.counters == 0 and card.slot is not None and card.slot.kind == SlotKind.WEAPON:
-                yield from do(AddCounter(card, "Fetch Stick"))(g)  # pragma: no mutate
-                yield from do(Wield(other(a.discarder), card, "Fetch Stick"))(g)  # pragma: no mutate
-            else:
-                yield from do(Discard(a.discarder, card, "Fetch Stick normal"))(g)  # pragma: no mutate
+            yield from do(AddCounter(card, "Fetch Stick"))(g)  # pragma: no mutate
+            yield from do(Wield(other(a.discarder), card, "Fetch Stick"))(g)  # pragma: no mutate
         return eff
-    card.traits = [Trait.on_discard(card, discard_cb).instead()]
+    card.traits = [Trait.as_a_weapon(card, TKind.REPLACEMENT,
+                         lambda a: isinstance(a, Discard) and a.card is card and card.counters == 0,
+                         discard_cb)]
     return card
 
 
@@ -117,7 +116,7 @@ def weapon_10() -> Card:
         "weapon_10", "Vorpal Blade (10)",  # pragma: no mutate
         "As a weapon: When this is discarded, place all your action cards into "  # pragma: no mutate
         "refresh. Your Action Phase is over.",  # pragma: no mutate
-        10, (CardType.WEAPON,), False, False,
+        10, (CardType.WEAPON,), is_first=True, is_elusive=True
     )
     def discard_cb(a: Action) -> Effect:
         assert isinstance(a, Discard)

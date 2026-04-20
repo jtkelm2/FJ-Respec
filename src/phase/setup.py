@@ -21,18 +21,17 @@ def create_initial_state(seed: int | None = None) -> GameState:
     rng.shuffle(blue_deck)
     rng.shuffle(guards)
 
-    red = PlayerState("red")  # pragma: no mutate
+    red = PlayerState(PID.RED)
     red.deck.slot(*red_deck)
 
-    blue = PlayerState("blue")  # pragma: no mutate
+    blue = PlayerState(PID.BLUE)
     blue.deck.slot(*blue_deck)
 
     g = GameState(
         rng=rng,
         priority=rng.choice([PID.RED, PID.BLUE]),  # pragma: no mutate
         players={PID.RED: red, PID.BLUE: blue},
-        guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK, guards),  # pragma: no mutate
-        action_field=ActionField("shared"),  # pragma: no mutate
+        guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK, cards=guards),  # pragma: no mutate
         role_pool=list(GOOD_ROLES + EVIL_ROLES),
     )
 
