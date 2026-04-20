@@ -19,7 +19,7 @@ def _armed(sharpness_level):
 
     Weapon level matches sharpness_level so min(weapon, kill) = sharpness_level.
     """
-    ws = WeaponSlot("t")
+    ws = WeaponSlot("t", PID.RED)
     ws._weapon_slot.slot(weapon(max(sharpness_level, 1)))
     if sharpness_level > 0:
         ws.killstack.slot(enemy(sharpness_level))
@@ -121,13 +121,13 @@ class TestDamageMonotonicity:
 class TestCanUseWeapon:
 
     def test_empty_killstack_sharpness_equals_weapon_level(self):
-        ws = WeaponSlot("t")
+        ws = WeaponSlot("t", PID.RED)
         ws._weapon_slot.slot(weapon(5))
         assert ws.sharpness() == 5
         assert can_use_weapon(ws, enemy(5))
 
     def test_sharpness_dulls_with_kills(self):
-        ws = WeaponSlot("t")
+        ws = WeaponSlot("t", PID.RED)
         ws._weapon_slot.slot(weapon(10))
         ws.killstack.slot(enemy(3))
         assert ws.sharpness() == 3  # min(10, 3)
@@ -135,7 +135,7 @@ class TestCanUseWeapon:
         assert ws.sharpness() == 7  # min(10, 7), new top
 
     def test_sharpness_capped_by_weapon_level(self):
-        ws = WeaponSlot("t")
+        ws = WeaponSlot("t", PID.RED)
         ws._weapon_slot.slot(weapon(5))
         ws.killstack.slot(enemy(10))
         assert ws.sharpness() == 5  # can't exceed weapon level

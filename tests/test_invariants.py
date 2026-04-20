@@ -99,7 +99,7 @@ class TestCardConservation:
         g = initial_game(seed=42)
         e = enemy(5)
         g.players[PID.RED].hand.slot(e)
-        ws = WeaponSlot("t")
+        ws = WeaponSlot("t", PID.RED)
         ws._weapon_slot.slot(weapon(6))
         ws.killstack.slot(enemy(6))
         g.players[PID.RED].weapon_slots = [ws]

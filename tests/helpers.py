@@ -25,7 +25,7 @@ def minimal_game(seed=42):
     return GameState(
         rng=random.Random(seed),
         priority=PID.RED,
-        players={PID.RED: PlayerState("red"), PID.BLUE: PlayerState("blue")},
+        players={PID.RED: PlayerState(PID.RED), PID.BLUE: PlayerState(PID.BLUE)},
         guard_deck=Slot("guard_deck", SlotKind.GUARD_DECK),
     )
 

@@ -40,7 +40,7 @@ class TestHealBoundaries:
         (10, 0,  10),
         (10, 1,  11),
         (10, 10, 20),
-        (10, 15, 25),
+        (10, 15, 20),  # heal cannot exceed hp_ceiling (default 20)
     ])
     def test_heal_at_boundary(self, damage_first, heal, expected_hp):
         g = initial_game(seed=42)

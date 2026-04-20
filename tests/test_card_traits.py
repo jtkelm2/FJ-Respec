@@ -21,7 +21,7 @@ class TestCardShape:
 
     def test_the_fool_flags(self):
         c = the_fool()
-        assert c.is_elusive is False
+        assert c.is_elusive is True
         assert c.is_first is False
         assert c.types == (CardType.EVENT,)
         assert c.level is None
@@ -47,7 +47,7 @@ class TestTheFool:
         g.players[PID.RED].hp = 5
         before = count_all_cards(g)
 
-        run(g, do(Resolve(PID.RED, fool, "test")), interp())
+        run(g, do(Resolve(PID.RED, fool, "test")), interp(TextOption("Resolve")))
 
         assert g.players[PID.RED].hp == 10  # ate the food (5 -> 10)
         assert g.players[PID.RED].is_satiated

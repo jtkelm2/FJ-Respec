@@ -24,7 +24,7 @@ from helpers import interp, minimal_game, count_all_cards
 # ── Helpers ───────────────────────────────────────────────────
 
 def _armed(level, sharpness_level=0):
-    ws = WeaponSlot("t")
+    ws = WeaponSlot("t", PID.RED)
     ws._weapon_slot.slot(weapon(level))
     if sharpness_level > 0:
         ws.killstack.slot(enemy(sharpness_level))
@@ -185,7 +185,7 @@ class TestResolveWeapon:
         w1 = weapon(3)
         w2 = weapon(5)
         new_w = weapon(8)
-        ws0, ws1 = WeaponSlot("t"), WeaponSlot("t")
+        ws0, ws1 = WeaponSlot("t", PID.RED), WeaponSlot("t", PID.RED)
         ws0._weapon_slot.slot(w1)
         ws1._weapon_slot.slot(w2)
         g.players[PID.RED].weapon_slots = [ws0, ws1]
@@ -280,7 +280,7 @@ class TestDisarm:
     def test_disarm_clears_all_weapon_slots(self):
         g = minimal_game()
         w1, w2 = weapon(3), weapon(5)
-        ws0, ws1 = WeaponSlot("t"), WeaponSlot("t")
+        ws0, ws1 = WeaponSlot("t", PID.RED), WeaponSlot("t", PID.RED)
         ws0._weapon_slot.slot(w1)
         ws1._weapon_slot.slot(w2)
         g.players[PID.RED].weapon_slots = [ws0, ws1]

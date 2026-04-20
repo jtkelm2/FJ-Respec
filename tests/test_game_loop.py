@@ -265,10 +265,14 @@ class TestOfferWorldClaims:
         assert g.players[PID.BLUE].claims_world_killed is True
 
     def test_one_already_claimed_asks_other(self):
-        """When one has claimed, only the other is prompted."""
+        """When one has claimed, they see an acknowledgment notice and the
+        other is asked yes/no."""
         g = minimal_game()
         g.players[PID.RED].claims_world_killed = True
-        run(g, _offer_world_claims, interp(blue=[TextOption("No")]))
+        run(g, _offer_world_claims, interp(
+            TextOption("Okay"),
+            blue=[TextOption("No")],
+        ))
         assert g.players[PID.RED].claims_world_killed is True
         assert g.players[PID.BLUE].claims_world_killed is False
 
@@ -276,15 +280,21 @@ class TestOfferWorldClaims:
         """When one has claimed and the other says Yes, the claim is set."""
         g = minimal_game()
         g.players[PID.RED].claims_world_killed = True
-        run(g, _offer_world_claims, interp(blue=[TextOption("Yes")]))
+        run(g, _offer_world_claims, interp(
+            TextOption("Okay"),
+            blue=[TextOption("Yes")],
+        ))
         assert g.players[PID.BLUE].claims_world_killed is True
 
-    def test_both_already_claimed_no_prompt(self):
-        """When both have claimed, no prompts at all."""
+    def test_both_already_claimed_both_see_notice(self):
+        """When both have claimed, each receives the already-claimed notice."""
         g = minimal_game()
         g.players[PID.RED].claims_world_killed = True
         g.players[PID.BLUE].claims_world_killed = True
-        run(g, _offer_world_claims, interp())
+        run(g, _offer_world_claims, interp(
+            TextOption("Okay"),
+            blue=[TextOption("Okay")],
+        ))
 
 
 # ── _settle ───────────────────────────────────────────────────

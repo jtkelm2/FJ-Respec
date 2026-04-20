@@ -468,6 +468,11 @@ class Discard(Action):
   discarder: PID
   card: Card
   source: str = ""  # pragma: no mutate
+  orig: Slot | None = None
+
+  def __post_init__(self):
+    if self.orig is None:
+      self.orig = self.card.slot
 
 @dataclass
 class Refresh(Action):
@@ -637,8 +642,8 @@ def would_kill_enemy(action: Action, enemy: Card) -> bool:
     match action:
         case AddToKillstack(e, _, _, _) if e is enemy:
             return True
-        case Discard(_, c, _) if c is enemy:
-            return enemy.is_type(CardType.ENEMY) and enemy.slot is not None and enemy.slot.kind is SlotKind.ACTION_FIELD
+        case Discard(_, c, _, orig) if c is enemy:
+            return enemy.is_type(CardType.ENEMY) and orig is not None and orig.kind is SlotKind.ACTION_FIELD
     return False
 
 ############ Traits ##############################

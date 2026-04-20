@@ -7,7 +7,7 @@ and ordering prompts.
 from core.type import (
     PID, Card, CardType, Slot, SlotKind, Trait, TKind, TextOption,
     Heal, Damage, Action, GameState, Effect, Negotiation,
-    Resolve, Discard, Slay, Slot2Slot, SlotCard,
+    Resolve, Discard, Refresh, Slay, Slot2Slot, SlotCard,
     PromptHalf,
 )
 from core.engine import do
@@ -389,6 +389,51 @@ class TestAfterDeathKeyword:
         run(g, do(Heal(PID.RED, 1)), interp())
 
         assert len(g.active_traits) == 0
+
+
+# --- Trait-removal invariant ---------------------------------------------
+
+class TestTraitRemovedByApplyAction:
+    """When _apply_action moves the trait's host card into a slot that
+    _get_triggers does NOT search (deck, refresh, killstack-for-triggers, etc),
+    the trait must not fire for that same action's AFTER phase.
+
+    This is the design invariant that lets predicates like would_kill_enemy
+    rely on a captured `orig` rather than on `enemy.slot` at AFTER-time: the
+    engine guarantees that a host removed mid-dispatch stops triggering."""
+
+    def test_after_trait_does_not_fire_when_host_moved_to_refresh(self):
+        g = minimal_game()
+        log = []
+        host = Card("host", "Host", "", 1, (CardType.ENEMY,), False, False)
+        host.traits = [_logging_trait(
+            "host_after_refresh", TKind.AFTER,
+            lambda a: isinstance(a, Refresh), log, "fired")]
+        g.players[PID.RED].action_field.top_distant.slot(host)
+
+        # Refreshing host moves it from action_field into refresh pile.
+        # _get_triggers does not search the refresh pile, so the host's
+        # AFTER trait is invisible by AFTER-time.
+        run(g, do(Refresh(host, PID.RED, "test")), interp())
+
+        assert log == []
+        assert host in g.players[PID.RED].refresh.cards
+
+    def test_before_trait_still_fires_before_host_is_moved(self):
+        """Sanity: BEFORE triggers DO fire because the host is still in a
+        searched slot at that moment. This rules out a test that passes for
+        the wrong reason (e.g. predicate broken, action misrouted)."""
+        g = minimal_game()
+        log = []
+        host = Card("host", "Host", "", 1, (CardType.ENEMY,), False, False)
+        host.traits = [_logging_trait(
+            "host_before_refresh", TKind.BEFORE,
+            lambda a: isinstance(a, Refresh), log, "fired")]
+        g.players[PID.RED].action_field.top_distant.slot(host)
+
+        run(g, do(Refresh(host, PID.RED, "test")), interp())
+
+        assert log == ["fired"]
 
 
 # --- Multi-trait: continue not break --------------------------------------
