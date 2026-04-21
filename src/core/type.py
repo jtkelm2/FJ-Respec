@@ -744,7 +744,7 @@ class Trait:
     def after_death(card: Card,
                     permanent_trait: "Callable[[PID],Trait]"):
         def callback(a: Action) -> Effect:
-            def eff(g: "GameState") -> "Negotiation":
+            def eff(g: GameState) -> Negotiation:
                 match a:
                     case AddToKillstack(_, slayer, _, _):
                         g.active_traits.append(permanent_trait(slayer))
