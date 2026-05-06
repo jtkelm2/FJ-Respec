@@ -6,8 +6,10 @@ name field. No synthetic UIDs are needed — names are baked into the
 engine objects at construction time.
 
 The catalog maps names to metadata (display_name, types, etc. for cards;
-owner/role for slots; owner/index for weapon slots). State updates and
-prompt options reference names directly.
+owner/role for slots; owner/index for weapon slots). All player-relative
+references on the wire use absolute PIDs ("RED" / "BLUE"); the catalog
+is identical for both clients. Each client learns its own PID from a
+post-catalog `pid_assignment` notify.
 """
 
 from core.type import (
@@ -54,7 +56,7 @@ class Serializer:
             return "hidden"
         return self._slot_vis.get(pid, {}).get(slot, "hidden")
 
-    def events(self, event_list: list, pid: PID) -> list[dict]:
+    def events(self, event_list: list[Event], pid: PID) -> list[dict]:
         result = []
         for event in event_list:
             wire = self._serialize_event(event, pid)
@@ -62,7 +64,7 @@ class Serializer:
                 result.append(wire)
         return result
 
-    def _serialize_event(self, event, pid: PID) -> dict | None:
+    def _serialize_event(self, event:Event, pid: PID) -> dict | None:
         match event:
             case CardMoved(_, source, source_index, dest, dest_index):
                 src_vis = self._vis(source, pid)
@@ -90,7 +92,7 @@ class Serializer:
             case HPChanged(target, old_hp, new_hp):
                 if target != pid:
                     return None
-                return {"type": "hp_changed", "old": old_hp, "new": new_hp}
+                return {"type": "hp_changed", "target": target.name, "old": old_hp, "new": new_hp}
             case SlotShuffled(slot):
                 if self._vis(slot, pid) == "hidden":
                     return None
@@ -151,10 +153,23 @@ class Serializer:
             "outcome": gr.outcome.name,
         }
 
+        # Principled per-player block: own info filled, opponent's role/
+        # alignment/hp are hidden information so they're surfaced as null.
+        players = {
+            pid.name: {
+                "role": view.role,
+                "alignment": view.alignment,
+                "hp": view.hp,
+            },
+            opp.name: {
+                "role": None,
+                "alignment": None,
+                "hp": None,
+            },
+        }
+
         return {
-            "role": view.role,
-            "alignment": view.alignment,
-            "hp": view.hp,
+            "players": players,
             "slots": slots,
             "current_phase": view.current_phase.name if view.current_phase else None,
             "priority": view.priority.name,
@@ -271,15 +286,15 @@ class Accumulator:
             self._build_visibility(),
         )
 
-    def catalog(self, pid: PID) -> dict:
-        """Per-player catalog for session init.
+    def catalog(self) -> dict:
+        """Catalog for session init. Identical for both clients.
 
         Cards, slots, and weapon_slots are all keyed by wire name,
-        mapping to a description dict with owner and role."""
-        def _owner_label(owner: PID | None) -> str:  # pragma: no mutate
-            if owner is None:
-                return "shared"  # pragma: no mutate
-            return "self" if owner == pid else "opponent"  # pragma: no mutate
+        mapping to a description dict with owner and role. `owner` is
+        an absolute PID name ("RED" / "BLUE") or null for unowned slots
+        (e.g. the shared guard deck)."""
+        def _owner_label(owner: PID | None) -> str | None:  # pragma: no mutate
+            return owner.name if owner is not None else None  # pragma: no mutate
 
         slots: dict[str, dict] = {}  # pragma: no mutate
         for owner, role, name in self._slot_roles:

@@ -12,7 +12,7 @@ from socket import AF_INET, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket
 
 from core.type import PID, GameResult
 from interact.connection import Connection, TCPConnection
-from interact.player import Player, RemotePlayer
+from interact.player import Player, RemotePlayer, PidAssignment
 from interact.interpret import run, AsyncAggregateInterpreter, ViewPushingInterpreter
 from interact.serial import Accumulator
 from phase.game import game_loop
@@ -48,8 +48,11 @@ class GameServer:
     red = RemotePlayer(red_conn, serializer, PID.RED, "RED")
     blue = RemotePlayer(blue_conn, serializer, PID.BLUE, "BLUE")
 
-    red.send({"type": "catalog", **acc.catalog(PID.RED)})
-    blue.send({"type": "catalog", **acc.catalog(PID.BLUE)})
+    catalog_msg = {"type": "catalog", **acc.catalog()}
+    red.send(catalog_msg)
+    blue.send(catalog_msg)
+    red.notify(PidAssignment(PID.RED))
+    blue.notify(PidAssignment(PID.BLUE))
 
     players: dict[PID, Player] = {PID.RED: red, PID.BLUE: blue}
     interp = ViewPushingInterpreter(g, players, AsyncAggregateInterpreter(red, blue))

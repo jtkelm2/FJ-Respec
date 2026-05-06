@@ -82,6 +82,9 @@ class GUIGameClient(GameClient):
 
     def __init__(self):
         self._cards: dict[str, dict] = {}           # name → card entry
+        self._slots: dict[str, dict] = {}
+        self._weapon_slots: dict[str, dict] = {}
+        self._pid: str | None = None  # "RED" or "BLUE" — set by pid_assignment
         self._my_slots: dict[str, str] = {}
         self._opp_slots: dict[str, str] = {}
         self._shared_slots: dict[str, str] = {}
@@ -290,26 +293,36 @@ class GUIGameClient(GameClient):
                    slots: dict[str, dict],
                    weapon_slots: dict[str, dict]) -> None:
         self._cards = dict(cards)
+        self._slots = dict(slots)
+        self._weapon_slots = dict(weapon_slots)
+        if self._pid is not None:
+            self._resolve_slot_views()
+        log.info("on_catalog: %d cards, pid=%s", len(cards), self._pid)
+
+    def _resolve_slot_views(self) -> None:
+        assert self._pid is not None
         self._my_slots = {}
         self._opp_slots = {}
         self._shared_slots = {}
-        for name, info in slots.items():
-            match info["owner"]:
-                case "self": self._my_slots[info["role"]] = name
-                case "opponent": self._opp_slots[info["role"]] = name
-                case "shared": self._shared_slots[info["role"]] = name
+        for name, info in self._slots.items():
+            owner = info["owner"]
+            if owner is None:
+                self._shared_slots[info["role"]] = name
+            elif owner == self._pid:
+                self._my_slots[info["role"]] = name
+            else:
+                self._opp_slots[info["role"]] = name
         self._my_weapon_slots = [
-            name for name, info in weapon_slots.items() if info["owner"] == "self"
+            name for name, info in self._weapon_slots.items() if info["owner"] == self._pid
         ]
-        log.info("on_catalog: %d cards, %d my slots, %d opp slots",
-                 len(cards), len(self._my_slots), len(self._opp_slots))
 
     def on_state(self, view: ClientPlayerView, events: list | None = None) -> None:
         if events:
             log.info("on_state: %d events", len(events))
             for e in events:
                 log.info("  event: %s", e)
-        log.debug("on_state: hp=%s", view["hp"])
+        own = view["players"][self._pid] if self._pid else {"hp": None}
+        log.debug("on_state: hp=%s", own["hp"])
         self.root.after(0, self._render_state, view)
 
     def _render_state(self, view: ClientPlayerView) -> None:
@@ -389,8 +402,9 @@ class GUIGameClient(GameClient):
         deck = self._my(view, "deck")
         refresh = self._my(view, "refresh")
         discard = self._my(view, "discard")
+        own = view["players"][self._pid] if self._pid else {"hp": "?"}
         self._my_summary.config(text=(
-            f"HP {view['hp']:>2}  "
+            f"HP {own['hp']:>2}  "
             f"deck {deck}  "
             f"refresh {refresh}  "
             f"discard {discard}  "
@@ -459,8 +473,11 @@ class GUIGameClient(GameClient):
 
     def on_notify(self, notification: dict) -> None:
         match notification.get("kind"):
-            case "role_assignment":
-                text = f"You are {notification['role']} ({notification['side']})"
+            case "pid_assignment":
+                self._pid = notification["pid"]
+                if self._slots:
+                    self._resolve_slot_views()
+                text = f"You are {self._pid}"
             case "info":
                 text = notification["text"]
             case _:

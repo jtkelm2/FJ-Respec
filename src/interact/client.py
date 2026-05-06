@@ -85,7 +85,12 @@ class CLIGameClient(GameClient):
 
     def __init__(self):
         self._cards: dict[str, dict] = {}           # name → card entry
-        # role → slot name, per owner
+        # Catalog as received (absolute PIDs). Slot/role mapping is resolved
+        # lazily once the pid_assignment notify arrives.
+        self._slots: dict[str, dict] = {}
+        self._weapon_slots: dict[str, dict] = {}
+        self._pid: str | None = None  # "RED" or "BLUE" — set by pid_assignment
+        # role → slot name, derived once pid is known
         self._my_slots: dict[str, str] = {}
         self._opp_slots: dict[str, str] = {}
         self._shared_slots: dict[str, str] = {}
@@ -96,17 +101,26 @@ class CLIGameClient(GameClient):
                    slots: dict[str, dict],
                    weapon_slots: dict[str, dict]) -> None:
         self._cards = dict(cards)
-        # Invert flat wire_name → {owner, role} to role → wire_name per owner
+        self._slots = dict(slots)
+        self._weapon_slots = dict(weapon_slots)
+        if self._pid is not None:
+            self._resolve_slot_views()
+
+    def _resolve_slot_views(self) -> None:
+        assert self._pid is not None
         self._my_slots = {}
         self._opp_slots = {}
         self._shared_slots = {}
-        for name, info in slots.items():
-            match info["owner"]:
-                case "self": self._my_slots[info["role"]] = name
-                case "opponent": self._opp_slots[info["role"]] = name
-                case "shared": self._shared_slots[info["role"]] = name
+        for name, info in self._slots.items():
+            owner = info["owner"]
+            if owner is None:
+                self._shared_slots[info["role"]] = name
+            elif owner == self._pid:
+                self._my_slots[info["role"]] = name
+            else:
+                self._opp_slots[info["role"]] = name
         self._my_weapon_slots = [
-            name for name, info in weapon_slots.items() if info["owner"] == "self"
+            name for name, info in self._weapon_slots.items() if info["owner"] == self._pid
         ]
 
     def _sharpness(self, weapon_name: str, killstack: list[str]) -> int:
@@ -154,10 +168,11 @@ class CLIGameClient(GameClient):
             log.info("on_state: %d events", len(events))
             for e in events:
                 log.info("  event: %s", e)
-        log.debug("on_state: hp=%s", view["hp"])
+        own = view["players"][self._pid] if self._pid else {"hp": None}
+        log.debug("on_state: hp=%s", own["hp"])
 
         print("\n--- Game State ---")  # pragma: no mutate
-        print(f"  HP: {view['hp']}")  # pragma: no mutate
+        print(f"  HP: {own['hp']}")  # pragma: no mutate
 
         hand = self._my(view, "hand")
         if hand and isinstance(hand, list):
@@ -243,8 +258,11 @@ class CLIGameClient(GameClient):
 
     def on_notify(self, notification: dict) -> None:
         match notification.get("kind"):
-            case "role_assignment":
-                msg = f"You are {notification['role']} ({notification['side']})"
+            case "pid_assignment":
+                self._pid = notification["pid"]
+                if self._slots:
+                    self._resolve_slot_views()
+                msg = f"You are {self._pid}"
             case "info":
                 msg = notification["text"]
             case _:

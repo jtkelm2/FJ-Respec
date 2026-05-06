@@ -12,10 +12,28 @@ from core.type import (
     GameResult, Outcome, Ask, AskBoth, AskEither,
     compute_player_view, TextOption, CardOption,
 )
-from interact.player import ScriptedPlayer, Player
+from interact.player import ScriptedPlayer, Player, RemotePlayer, PidAssignment, Info
 from interact.interpret import AsyncAggregateInterpreter, ViewPushingInterpreter
 from interact.serial import Accumulator
 from helpers import initial_game
+
+
+class _FakeConnection:
+    """Minimal Connection stand-in for wire-format tests: records sends, never receives."""
+    def __init__(self):
+        self.sent: list[dict] = []
+        self._never_receive = __import__("threading").Event()
+
+    def send(self, msg: dict) -> None:
+        self.sent.append(msg)
+
+    def recv(self) -> dict:
+        # Block forever — tests don't exercise the receive path.
+        self._never_receive.wait()
+        raise RuntimeError("unreachable")  # pragma: no cover
+
+    def close(self) -> None:
+        pass
 
 
 def _make_interp(g, red, blue):
@@ -103,7 +121,7 @@ class TestSerialization:
         g = initial_game(seed=42)
         acc = Accumulator(g)
         ser = acc.serializer()
-        catalog = acc.catalog(PID.RED)
+        catalog = acc.catalog()
         view = compute_player_view(g, PID.RED)
         serialized = ser.player_view(view, PID.RED)
 
@@ -114,31 +132,31 @@ class TestSerialization:
                     assert entry["name"] in catalog_names
 
     def test_catalog_slots_keyed_by_wire_name(self):
-        """Catalog slots are flat: {wire_name: {owner, role}}."""
+        """Catalog slots are flat: {wire_name: {owner, role}} with absolute PIDs."""
         g = initial_game(seed=42)
         acc = Accumulator(g)
-        catalog = acc.catalog(PID.RED)
+        catalog = acc.catalog()
 
-        assert catalog["slots"]["red_hand"] == {"owner": "self", "role": "hand"}
-        assert catalog["slots"]["red_deck"] == {"owner": "self", "role": "deck"}
-        assert catalog["slots"]["red_equipment"] == {"owner": "self", "role": "equipment"}
-        assert catalog["slots"]["guard_deck"] == {"owner": "shared", "role": "guard_deck"}
+        assert catalog["slots"]["red_hand"] == {"owner": "RED", "role": "hand"}
+        assert catalog["slots"]["red_deck"] == {"owner": "RED", "role": "deck"}
+        assert catalog["slots"]["red_equipment"] == {"owner": "RED", "role": "equipment"}
+        assert catalog["slots"]["blue_hand"] == {"owner": "BLUE", "role": "hand"}
+        assert catalog["slots"]["guard_deck"] == {"owner": None, "role": "guard_deck"}
 
-    def test_catalog_owner_labels_relative_to_pid(self):
-        """Catalog labels slots as self/opponent relative to receiving player."""
+    def test_catalog_is_identical_for_both_players(self):
+        """The catalog no longer carries per-receiver perspective — it is a
+        single shared vocabulary, identical for RED and BLUE clients."""
         g = initial_game(seed=42)
         acc = Accumulator(g)
-        red_catalog = acc.catalog(PID.RED)
-        blue_catalog = acc.catalog(PID.BLUE)
-
-        # RED's "self" slots are BLUE's "opponent" slots (same wire names)
-        red_self = {name for name, info in red_catalog["slots"].items() if info["owner"] == "self"}
-        blue_opp = {name for name, info in blue_catalog["slots"].items() if info["owner"] == "opponent"}
-        assert red_self == blue_opp
-        # And vice versa
-        red_opp = {name for name, info in red_catalog["slots"].items() if info["owner"] == "opponent"}
-        blue_self = {name for name, info in blue_catalog["slots"].items() if info["owner"] == "self"}
-        assert red_opp == blue_self
+        # No-arg call: catalog is symmetric.
+        catalog_a = acc.catalog()
+        catalog_b = acc.catalog()
+        assert catalog_a == catalog_b
+        # And every owner is an absolute PID name or null — never "self"/"opponent".
+        for info in catalog_a["slots"].values():
+            assert info["owner"] in ("RED", "BLUE", None)
+        for info in catalog_a["weapon_slots"].values():
+            assert info["owner"] in ("RED", "BLUE", None)
 
     def test_identical_cards_share_wire_name(self):
         """Two copies of the same card (e.g. enemy_3) share the same name on the wire."""
@@ -165,14 +183,15 @@ class TestSerialization:
         assert serialized["index"] == hand.cards.index(top)
 
     def test_weapon_slots_in_catalog(self):
-        """Weapon slots are nested by owner and role."""
+        """Weapon slots are keyed by wire name with absolute PID owners."""
         g = initial_game(seed=42)
         acc = Accumulator(g)
-        catalog = acc.catalog(PID.RED)
+        catalog = acc.catalog()
 
         assert "red_ws_0" in catalog["weapon_slots"]
-        assert catalog["weapon_slots"]["red_ws_0"]["owner"] == "self"
+        assert catalog["weapon_slots"]["red_ws_0"]["owner"] == "RED"
         assert catalog["weapon_slots"]["red_ws_0"]["role"] == "ws_0"
+        assert catalog["weapon_slots"]["blue_ws_0"]["owner"] == "BLUE"
 
     def test_weapons_in_state(self):
         """Weapons in state carry name, card, sharpness, kills."""
@@ -188,6 +207,72 @@ class TestSerialization:
         assert "red_ws_0_killstack" in serialized["slots"]
         assert isinstance(serialized["slots"]["red_ws_0_weapon"], list)
         assert isinstance(serialized["slots"]["red_ws_0_killstack"], list)
+
+    def test_view_has_players_block_with_absolute_pids(self):
+        """The view's per-player info lives in `players: {RED: {...}, BLUE: {...}}`,
+        with the receiver's own info filled and the opponent's hidden as null."""
+        g = initial_game(seed=42)
+        g.players[PID.RED].hp = 17
+        g.players[PID.BLUE].hp = 13
+        acc = Accumulator(g)
+        ser = acc.serializer()
+
+        red_view = compute_player_view(g, PID.RED)
+        red_ser = ser.player_view(red_view, PID.RED)
+
+        # No top-level role/alignment/hp fields anymore.
+        assert "role" not in red_ser
+        assert "alignment" not in red_ser
+        assert "hp" not in red_ser
+
+        # Both PIDs are always present as keys.
+        assert set(red_ser["players"].keys()) == {"RED", "BLUE"}
+
+        # Own block carries real values.
+        assert red_ser["players"]["RED"]["hp"] == 17
+
+        # Opponent block has null role/alignment/hp (fog of war).
+        assert red_ser["players"]["BLUE"]["hp"] is None
+        assert red_ser["players"]["BLUE"]["role"] is None
+        assert red_ser["players"]["BLUE"]["alignment"] is None
+
+        # Symmetric for BLUE.
+        blue_view = compute_player_view(g, PID.BLUE)
+        blue_ser = ser.player_view(blue_view, PID.BLUE)
+        assert blue_ser["players"]["BLUE"]["hp"] == 13
+        assert blue_ser["players"]["RED"]["hp"] is None
+
+    def test_pid_assignment_wire_format(self):
+        """RemotePlayer.notify(PidAssignment(pid)) emits the documented wire form."""
+        g = initial_game(seed=42)
+        ser = Accumulator(g).serializer()
+        conn = _FakeConnection()
+        rp = RemotePlayer(conn, ser, PID.RED, "test")
+
+        rp.notify(PidAssignment(PID.RED))
+        rp.notify(PidAssignment(PID.BLUE))
+        rp.notify(Info("hello"))
+
+        # First two are pid_assignment notifies with absolute PID names.
+        assert conn.sent[0] == {"type": "notify", "kind": "pid_assignment", "pid": "RED"}
+        assert conn.sent[1] == {"type": "notify", "kind": "pid_assignment", "pid": "BLUE"}
+        # Info notification continues to work.
+        assert conn.sent[2] == {"type": "notify", "kind": "info", "text": "hello"}
+
+    def test_hp_changed_event_carries_target(self):
+        """hp_changed wire event names the player whose HP changed (own only)."""
+        from core.type import HPChanged
+        g = initial_game(seed=42)
+        acc = Accumulator(g)
+        ser = acc.serializer()
+
+        # Own HP change — event is emitted with explicit target.
+        own = ser.events([HPChanged(PID.RED, 20, 15)], PID.RED)
+        assert own == [{"type": "hp_changed", "target": "RED", "old": 20, "new": 15}]
+
+        # Opponent HP change — fog-of-war filtered out.
+        opp = ser.events([HPChanged(PID.BLUE, 20, 15)], PID.RED)
+        assert opp == []
 
 
 # ── AsyncAggregateInterpreter ────────────────────────────────

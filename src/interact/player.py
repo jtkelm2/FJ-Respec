@@ -38,7 +38,11 @@ OOB = Resigned | DrawOffered | DrawAccepted | Disconnect
 class Info:
     text: str
 
-Notification = Info
+@dataclass
+class PidAssignment:
+    pid: PID
+
+Notification = Info | PidAssignment
 
 
 # ── Player contract ──────────────────────────────────────────
@@ -171,6 +175,8 @@ class RemotePlayer(Player):
     match notification:
       case Info(text):
         msg = {"type": "notify", "kind": "info", "text": text}
+      case PidAssignment(pid):
+        msg = {"type": "notify", "kind": "pid_assignment", "pid": pid.name}
     self.send(msg)
 
   def close(self) -> None:
