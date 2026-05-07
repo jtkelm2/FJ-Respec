@@ -12,7 +12,7 @@ def manipulation_phase() -> Effect:
     """
     def player_effect(pid) -> Effect:
         def eff(g):
-            forcing = {'val': False}
+            forcing: dict = {'card': None}
             pb = (PromptBuilder("Choose: Manipulate or Dump?")  # pragma: no mutate
                   .add(TextOption("Manipulate"))  # pragma: no mutate
                   .add(TextOption("Dump")))  # pragma: no mutate
@@ -21,7 +21,7 @@ def manipulation_phase() -> Effect:
                 yield from _manipulate(pid, forcing)(g)  # pragma: no mutate
             else:
                 yield from _dump(pid)(g)  # pragma: no mutate
-            yield from _post_manipulation(pid, forcing['val'])(g)
+            yield from _post_manipulation(pid, forcing['card'])(g)
         return eff
 
     return simultaneously({pid: player_effect(pid) for pid in PID})
@@ -29,8 +29,12 @@ def manipulation_phase() -> Effect:
 
 # --- Helpers ---
 
-def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
-    """Swap cards between manipulation field and hand; optionally force."""
+def _manipulate(pid: PID, forcing: dict) -> Effect:
+    """Swap cards between manipulation field and hand; optionally force.
+
+    On force, also pick which of the two manipulation-field cards to send.
+    The selection is captured before the third card is drawn, so the
+    manipulator never sees the third card."""
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
 
@@ -77,7 +81,12 @@ def _manipulate(pid: PID, forcing: dict[str,bool]) -> Effect:
                 equip = None
             if equip is not None:
                 yield from do(Discard(pid, equip, "forcing"))(g)  # pragma: no mutate
-                forcing['val'] = True
+                cpb = PromptBuilder("Choose which manipulation card to send to opponent:")  # pragma: no mutate
+                cpb.add_cards(list(p.sidebar.cards))  # pragma: no mutate
+                response = yield cpb.build(pid)  # pragma: no mutate
+                chosen = response[pid]
+                assert isinstance(chosen, CardOption)
+                forcing['card'] = chosen.card
 
     return effect
 
@@ -105,48 +114,33 @@ def _dump(pid: PID) -> Effect:
     return effect
 
 
-def _post_manipulation(pid: PID, is_forcing: bool) -> Effect:
+def _post_manipulation(pid: PID, forced_card: Card | None) -> Effect:
     """
     Post-manipulation steps:
-      1. (Flip cards in manipulation field — no-op in headless engine)
-      2. Draw one card from other player's deck into manipulation field
-      3. Shuffle manipulation field; deal one to other player's open action slot
-      4. Refresh remaining manipulation field cards
-      5. Refresh any elusive cards from hand
+      1. PostManipulate primitive: introduce third card from opponent's deck,
+         randomly (or by forcing) place one card on opponent's deck-top, the
+         remaining two on opponent's refresh. The manipulator never sees the
+         third card.
+      2. Fill each open opponent action slot by drawing from opponent's deck.
+         (The first such draw will yield the rigged/forced card.)
+      3. Refresh any elusive cards still in hand.
     """
     def effect(g: GameState) -> Negotiation:
         p = g.players[pid]
         other_pid = other(pid)
         other_p = g.players[other_pid]
 
-        # Step 2: draw from other's deck into manipulation field
+        # Step 1: atomic third-card mix + distribution
         yield from do(EnsureDeck(other_pid, "manipulation deal"))(g)  # pragma: no mutate
-        yield from do(Slot2Slot(other_p.deck, p.sidebar, "manipulation deal"))(g)  # pragma: no mutate
+        yield from do(PostManipulate(pid, forced_card, "post manipulation"))(g)  # pragma: no mutate
 
-        # Step 3: shuffle manipulation field, deal one to other's open action slot
-        yield from do(Shuffle(p.sidebar, "manipulation shuffle"))(g)  # pragma: no mutate
-
+        # Step 2: fill each open opponent action slot from opponent's deck
         open_slots = [s for s in other_p.action_field.slots_in_fill_order() if s.is_empty()]
         for slot in open_slots:
-            if is_forcing:
-                mf_cards = p.sidebar.cards
-                pb = PromptBuilder("Choose card to force to opponent:")  # pragma: no mutate
-                pb.add_cards(list(mf_cards))  # pragma: no mutate
-                pb.context(SlotOption(slot))  # pragma: no mutate
-                response = yield pb.build(pid)  # pragma: no mutate
-                chosen_opt = response[pid]
-                assert isinstance(chosen_opt, CardOption)
-                chosen = chosen_opt.card
-                yield from do(SlotCard(chosen, slot, "forced deal to action field"))(g)  # pragma: no mutate
-            else:
-                # Already shuffled, so drawing position 0 is effectively random
-                yield from do(Slot2Slot(p.sidebar, slot, "deal to action field"))(g)  # pragma: no mutate
+            yield from do(EnsureDeck(other_pid, "deal to action field"))(g)  # pragma: no mutate
+            yield from do(Slot2Slot(other_p.deck, slot, "deal to action field"))(g)  # pragma: no mutate
 
-        # Step 4: refresh remaining manipulation field cards (back to other's refresh pile)
-        for card in list(p.sidebar.cards):
-            yield from do(Refresh(card, other_pid, "refresh manipulation remainder"))(g)  # pragma: no mutate
-
-        # Step 5: refresh any elusive cards still in hand (back to other's refresh pile)
+        # Step 3: refresh any elusive cards still in hand (back to other's refresh pile)
         for card in list(p.hand.cards):
             if card.is_elusive:
                 yield from do(Refresh(card, other_pid, "refresh elusive from hand"))(g)  # pragma: no mutate

@@ -633,6 +633,12 @@ class DistancePenalty(Action):
 class FlipPriority(Action):
   source: str = ""  # pragma: no mutate
 
+@dataclass
+class PostManipulate(Action):
+  manipulator: PID
+  forced_card: Card | None = None
+  source: str = ""  # pragma: no mutate
+
 ############ Kill detection ##############################
 
 def would_kill_enemy(action: Action, enemy: Card) -> bool:
@@ -884,6 +890,11 @@ class PhaseChanged(Event):
 @dataclass
 class GameEnded(Event):
   result: GameResult
+
+@dataclass
+class PostManipulated(Event):
+  manipulator: PID
+  forced: int | None = None  # sidebar index of the forced card; None if not forcing
 
 
 ############# Player View ########

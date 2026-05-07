@@ -235,6 +235,19 @@ def _apply_action(action: Action) -> Effect:
                 yield from do(Damage(player, 3, "distance penalty"))(g)  # pragma: no mutate
             case FlipPriority():
                 g.priority = other(g.priority)
+            case PostManipulate(manipulator, forced_card, source):
+                p = g.players[manipulator]
+                other_p = g.players[other(manipulator)]
+                originals = list(p.sidebar.cards)
+                forced_idx = originals.index(forced_card) if forced_card is not None else None
+                third = other_p.deck.draw()
+                pool = originals + [third]
+                chosen = forced_card if forced_card is not None else g.rng.choice(pool)
+                rest = [c for c in pool if c is not chosen]
+                p.sidebar.deslot(*originals)
+                other_p.deck.slot(chosen)  # pragma: no mutate
+                other_p.refresh.slot(*rest)
+                g._event_log.append(PostManipulated(manipulator, forced_idx))
             case _:  # pragma: no mutate
                 raise Exception(f"Action not in list: {action}")  # pragma: no mutate
     return effect

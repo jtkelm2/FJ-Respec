@@ -17,6 +17,7 @@ from core.type import (
     PlayerView, Option, Event, GameResult,
     CardOption, SlotOption, WeaponSlotOption, TextOption,
     CardMoved, SlotTransferred, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
+    PostManipulated,
     other,
 )
 
@@ -107,6 +108,11 @@ class Serializer:
                     "winners": [p.name for p in result.winners],
                     "outcome": result.outcome.name,
                 }
+            case PostManipulated(manipulator, forced):
+                wire: dict = {"type": "post_manipulate", "manipulator": manipulator.name}
+                if pid == manipulator and forced is not None:
+                    wire["forced"] = forced
+                return wire
             case _:
                 return None
 

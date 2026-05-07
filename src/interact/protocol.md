@@ -258,6 +258,7 @@ The `state` message MAY include an `events` array describing what happened since
     {"type": "slot_transferred", "source": "red_refresh", "dest": "red_deck", "count": 20},
     {"type": "hp_changed", "target": "RED", "old": 20, "new": 15},
     {"type": "slot_shuffled", "slot": "red_deck"},
+    {"type": "post_manipulate", "manipulator": "RED", "forced": 1},
     {"type": "player_died", "target": "RED"},
     {"type": "phase_changed", "phase": "ACTION"},
     {"type": "game_ended", "winners": ["RED"], "outcome": "GOOD_KILLED_EVIL"}
@@ -273,6 +274,7 @@ Event types:
 | `slot_transferred` | `source`, `dest`, `count`                              | All cards of `source` were moved to `dest` as a batch (e.g., refresh pile shuffled into deck). Clients may animate this as a single batch gesture, rather than N individual card moves. |
 | `hp_changed`     | `target`, `old`, `new`                                   | A player's HP changed. `target` is `"RED"` or `"BLUE"`. Per fog-of-war, only emitted for the receiving client's own HP — but the field is included for symmetry with other player-targeted events. |
 | `slot_shuffled`  | `slot`                                                   | A slot was shuffled. `slot` is the wire name.           |
+| `post_manipulate`| `manipulator`, `forced` (manipulator only, optional)     | The manipulator's `PostManipulate` step ran: a third card was drawn from the opponent's deck, mixed with the two manipulation-field cards, and one of the three placed on the opponent's deck-top with the remaining two sent to opponent's refresh. `manipulator` is `"RED"` or `"BLUE"`. The `forced` field is present **only on the event delivered to the manipulator** and **only when the manipulator forced**: it is the integer index (`0` or `1`) of the card the manipulator chose from their sidebar (before the third card was drawn). The third card's identity is never disclosed to either player by this event. No per-card `card_moved` events are emitted for the moves performed inside `PostManipulate`. |
 | `player_died`    | `target`                                                 | A player died. `target` is `"RED"` or `"BLUE"`.         |
 | `phase_changed`  | `phase`                                                  | Game phase changed. `phase` is the phase name or `null`.|
 | `game_ended`     | `winners`, `outcome`                                     | Game ended with the given result.                       |
