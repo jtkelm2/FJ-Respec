@@ -253,8 +253,8 @@ The `state` message MAY include an `events` array describing what happened since
   "type": "state",
   "view": { ... },
   "events": [
-    {"type": "card_moved", "source": "red_hand", "source_index": 0, "dest": "red_discard", "dest_index": 0},
-    {"type": "card_moved", "source": "blue_deck", "source_index": 0, "dest": "blue_action_field_top_distant", "dest_index": 1},
+    {"type": "card_moved", "source": "red_hand", "source_index": 0, "dest": "red_discard", "dest_index": 0, "card": {"name": "food_3", "counters": 0}},
+    {"type": "card_moved", "source": "blue_deck", "source_index": 0, "dest": "blue_action_field_top_distant", "dest_index": 1, "card": {"name": "enemy_5", "counters": 0}},
     {"type": "slot_transferred", "source": "red_refresh", "dest": "red_deck", "count": 20},
     {"type": "hp_changed", "target": "RED", "old": 20, "new": 15},
     {"type": "slot_shuffled", "slot": "red_deck"},
@@ -270,7 +270,7 @@ Event types:
 
 | Event type       | Fields                                                   | Description                                             |
 | ---------------- | -------------------------------------------------------- | ------------------------------------------------------- |
-| `card_moved`     | `source`, `source_index`, `dest`, `dest_index`           | A card moved between slots. Identity is conveyed by slot + index. `source`/`source_index` refer to the state *before* the move; `dest`/`dest_index` refer to the state *after*. `source` and `source_index` are both `null` if the card had no prior slot. |
+| `card_moved`     | `source`, `source_index`, `dest`, `dest_index`, `card?` | A card moved between slots. `source`/`source_index` refer to the state *before* the move; `dest`/`dest_index` refer to the state *after*. `source` and `source_index` are both `null` if the card had no prior slot. The optional `card` field carries the card's identity as a `{"name", "counters"}` object (same shape as a slot entry — see §3.2.1) and is included whenever either the source or the destination slot is card-visible to this player; it is omitted when both endpoints are count-only or hidden. The `card` field lets the client predict the next state from events alone, even when the source is count-only (e.g. drawing from one's own deck). |
 | `slot_transferred` | `source`, `dest`, `count`                              | All cards of `source` were moved to `dest` as a batch (e.g., refresh pile shuffled into deck). Clients may animate this as a single batch gesture, rather than N individual card moves. |
 | `hp_changed`     | `target`, `old`, `new`                                   | A player's HP changed. `target` is `"RED"` or `"BLUE"`. Per fog-of-war, only emitted for the receiving client's own HP — but the field is included for symmetry with other player-targeted events. |
 | `slot_shuffled`  | `slot`                                                   | A slot was shuffled. `slot` is the wire name.           |
@@ -279,7 +279,7 @@ Event types:
 | `phase_changed`  | `phase`                                                  | Game phase changed. `phase` is the phase name or `null`.|
 | `game_ended`     | `winners`, `outcome`                                     | Game ended with the given result.                       |
 
-The client can cross-reference `source` + `source_index` against the *previous* state snapshot to determine which card moved (for animation); `dest` + `dest_index` can be cross-referenced against the *current* state to locate the card's new position. This works even for facedown moves (e.g., drawing from the deck): the client animates a card-back flying from `deck[source_index]` to the destination, without needing to know the card's identity.
+The client can cross-reference `source` + `source_index` against the *previous* state snapshot to determine which card moved (for animation); `dest` + `dest_index` can be cross-referenced against the *current* state to locate the card's new position. When the card identity is known to this player (either endpoint card-visible), the `card` field carries it directly so the client need not consult either snapshot to learn the moved card. This is what lets a client maintain its own state purely from the event stream — without the field, a move out of a count-only or hidden source into a card-visible destination (e.g. own draw) would leave the resulting state ambiguous.
 
 Events are fog-of-war filtered per player:
 - Card movements where both source and destination are hidden are omitted entirely.

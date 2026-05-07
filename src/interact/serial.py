@@ -67,18 +67,21 @@ class Serializer:
 
     def _serialize_event(self, event:Event, pid: PID) -> dict | None:
         match event:
-            case CardMoved(_, source, source_index, dest, dest_index):
+            case CardMoved(card, source, source_index, dest, dest_index):
                 src_vis = self._vis(source, pid)
                 dst_vis = self._vis(dest, pid)
                 if src_vis == "hidden" and dst_vis == "hidden":
                     return None
-                return {
+                wire: dict = {
                     "type": "card_moved",
                     "source": source.name if source else None,
                     "source_index": source_index,
                     "dest": dest.name,
                     "dest_index": dest_index,
                 }
+                if src_vis == "cards" or dst_vis == "cards":
+                    wire["card"] = {"name": card.name, "counters": card.counters}
+                return wire
             case SlotTransferred(source, dest, count):
                 src_vis = self._vis(source, pid)
                 dst_vis = self._vis(dest, pid)

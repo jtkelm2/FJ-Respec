@@ -279,8 +279,9 @@ class TestFogOfWarFiltering:
         assert wire["source_index"] == 0
         assert wire["dest"] == "red_hand"
         assert wire["dest_index"] == 0
-        # No 'card' field — identity is by slot+index
-        assert "card" not in wire
+        # 'card' field is attached because the destination (own hand) is card-visible,
+        # so the client can predict its new hand from the event alone (own deck is count-only).
+        assert wire["card"] == {"name": c.name, "counters": c.counters}
 
     def test_opponent_deck_to_opponent_distant_visible(self):
         g, ser = self._setup()
@@ -292,6 +293,51 @@ class TestFogOfWarFiltering:
         assert wire is not None
         assert wire["source"] == "blue_deck"
         assert wire["dest"] == "blue_action_field_top_distant"
+        # destination (opponent's distant action field) is card-visible to RED,
+        # so card identity is attached even though source (opponent deck) is count-only.
+        assert wire["card"] == {"name": c.name, "counters": c.counters}
+
+    def test_card_field_attached_when_source_card_visible(self):
+        g, ser = self._setup()
+        # RED's hand is card-visible to RED; RED's discard is count-only to RED.
+        c = food(7)
+        c.counters = 2
+        g.players[PID.RED].hand.slot(c)
+        event = CardMoved(c, g.players[PID.RED].hand, 0, g.players[PID.RED].discard, 0)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is not None
+        assert wire["card"] == {"name": "food_7", "counters": 2}
+
+    def test_card_field_omitted_when_neither_endpoint_card_visible(self):
+        g, ser = self._setup()
+        # RED's deck → RED's refresh: both count-only to RED (neither is card-visible).
+        c = g.players[PID.RED].deck.cards[0]
+        event = CardMoved(c, g.players[PID.RED].deck, 0, g.players[PID.RED].refresh, 0)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is not None
+        assert "card" not in wire
+
+    def test_card_field_omitted_when_opponent_count_to_count(self):
+        g, ser = self._setup()
+        # BLUE's deck (count to RED) → BLUE's deck again (count to RED):
+        # use opponent deck → guard_deck which is also count from RED's view.
+        c = g.players[PID.BLUE].deck.cards[0]
+        event = CardMoved(c, g.players[PID.BLUE].deck, 0, g.guard_deck, 0)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is not None
+        assert "card" not in wire
+
+    def test_card_field_with_no_source(self):
+        # Card created out of thin air (source=None) into a card-visible slot
+        # still gets the card field because the destination is card-visible.
+        g, ser = self._setup()
+        c = food(4)
+        event = CardMoved(c, None, None, g.players[PID.RED].hand, 0)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is not None
+        assert wire["source"] is None
+        assert wire["source_index"] is None
+        assert wire["card"] == {"name": "food_4", "counters": 0}
 
     def test_opponent_hp_change_hidden(self):
         g, ser = self._setup()
