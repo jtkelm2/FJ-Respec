@@ -305,7 +305,7 @@ class GUIGameClient(GameClient):
         self._opp_slots = {}
         self._shared_slots = {}
         for name, info in self._slots.items():
-            owner = info["owner"]
+            owner = info.get("owner")
             if owner is None:
                 self._shared_slots[info["role"]] = name
             elif owner == self._pid:
@@ -313,7 +313,7 @@ class GUIGameClient(GameClient):
             else:
                 self._opp_slots[info["role"]] = name
         self._my_weapon_slots = [
-            name for name, info in self._weapon_slots.items() if info["owner"] == self._pid
+            name for name, info in self._weapon_slots.items() if info.get("owner") == self._pid
         ]
 
     def on_state(self, view: ClientPlayerView, events: list | None = None) -> None:
@@ -411,7 +411,7 @@ class GUIGameClient(GameClient):
             f"hand {hand_count}"
         ))
 
-        gr = view["game_result"]
+        gr = view.get("game_result")
         if gr is not None:
             self._show_notify(
                 f"*** GAME OVER: {gr['outcome']} *** winners: {gr['winners']}"

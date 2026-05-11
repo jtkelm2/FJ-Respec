@@ -112,7 +112,7 @@ class CLIGameClient(GameClient):
         self._opp_slots = {}
         self._shared_slots = {}
         for name, info in self._slots.items():
-            owner = info["owner"]
+            owner = info.get("owner")
             if owner is None:
                 self._shared_slots[info["role"]] = name
             elif owner == self._pid:
@@ -120,7 +120,7 @@ class CLIGameClient(GameClient):
             else:
                 self._opp_slots[info["role"]] = name
         self._my_weapon_slots = [
-            name for name, info in self._weapon_slots.items() if info["owner"] == self._pid
+            name for name, info in self._weapon_slots.items() if info.get("owner") == self._pid
         ]
 
     def _sharpness(self, weapon_name: str, killstack: list[str]) -> int:
@@ -230,7 +230,7 @@ class CLIGameClient(GameClient):
         print(f"  Priority: {view['priority']}")  # pragma: no mutate
         print(f"  Guard deck: {self._shared(view, 'guard_deck')}")  # pragma: no mutate
 
-        gr = view["game_result"]
+        gr = view.get("game_result")
         if gr is not None:
             print(f"\n  *** GAME OVER: {gr['outcome']} ***")  # pragma: no mutate
             if gr["winners"]:

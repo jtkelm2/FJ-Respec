@@ -95,9 +95,44 @@ class TestSerialization:
         view = compute_player_view(g, PID.RED)
         serialized = ser.player_view(view, PID.RED)
 
-        assert serialized["game_result"] is not None
         assert serialized["game_result"]["outcome"] == "GOOD_KILLED_EVIL"
         assert "RED" in serialized["game_result"]["winners"]
+
+    def test_game_result_omitted_during_play(self):
+        """game_result key is absent (not null) while the game is in progress."""
+        g = initial_game(seed=42)
+        assert g.game_result is None
+        acc = Accumulator(g)
+        ser = acc.serializer()
+        view = compute_player_view(g, PID.RED)
+        serialized = ser.player_view(view, PID.RED)
+
+        assert "game_result" not in serialized
+
+    def test_current_phase_omitted_when_no_phase(self):
+        """current_phase key is absent (not null) between phases."""
+        g = initial_game(seed=42)
+        g.current_phase = None
+        acc = Accumulator(g)
+        ser = acc.serializer()
+        view = compute_player_view(g, PID.RED)
+        serialized = ser.player_view(view, PID.RED)
+
+        assert "current_phase" not in serialized
+
+    def test_card_level_omitted_when_not_applicable(self):
+        """Cards without a level (e.g. role cards / equipment) omit the 'level' key."""
+        g = initial_game(seed=42)
+        catalog = Accumulator(g).catalog()
+        # Role cards have no level concept — the key must be absent rather than null.
+        leveled = [name for name, e in catalog["cards"].items() if "level" in e]
+        unleveled = [name for name, e in catalog["cards"].items() if "level" not in e]
+        # Sanity: both populations exist (mixed cards in a real game).
+        assert leveled, "expected at least one card with a level"
+        assert unleveled, "expected at least one card without a level"
+        # No card carries level=None.
+        for entry in catalog["cards"].values():
+            assert entry.get("level") is not None or "level" not in entry
 
     def test_slots_keyed_by_name(self):
         """State slots dict is keyed by slot names."""
@@ -141,7 +176,8 @@ class TestSerialization:
         assert catalog["slots"]["red_deck"] == {"owner": "RED", "role": "deck"}
         assert catalog["slots"]["red_equipment"] == {"owner": "RED", "role": "equipment"}
         assert catalog["slots"]["blue_hand"] == {"owner": "BLUE", "role": "hand"}
-        assert catalog["slots"]["guard_deck"] == {"owner": None, "role": "guard_deck"}
+        # Unowned slots: 'owner' key is omitted entirely rather than null.
+        assert catalog["slots"]["guard_deck"] == {"role": "guard_deck"}
 
     def test_catalog_is_identical_for_both_players(self):
         """The catalog no longer carries per-receiver perspective — it is a
@@ -152,11 +188,12 @@ class TestSerialization:
         catalog_a = acc.catalog()
         catalog_b = acc.catalog()
         assert catalog_a == catalog_b
-        # And every owner is an absolute PID name or null — never "self"/"opponent".
+        # And every owner (when present) is an absolute PID name — never "self"/"opponent".
+        # The owner key is omitted entirely for unowned slots.
         for info in catalog_a["slots"].values():
-            assert info["owner"] in ("RED", "BLUE", None)
+            assert info.get("owner") in ("RED", "BLUE", None)
         for info in catalog_a["weapon_slots"].values():
-            assert info["owner"] in ("RED", "BLUE", None)
+            assert info.get("owner") in ("RED", "BLUE", None)
 
     def test_identical_cards_share_wire_name(self):
         """Two copies of the same card (e.g. enemy_3) share the same name on the wire."""

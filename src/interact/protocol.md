@@ -64,7 +64,7 @@ The game loop interleaves `state`, `notify`, and `prompt` messages from the serv
 
 ### 2.3 End of game
 
-The end of a session is signaled by a `state` message whose `view.game_result` field is non-null, followed by a `close` message, followed by the server closing the transport. After receiving `close`, the client MUST NOT send any further messages. The client MAY close the transport at any time (this is treated as a disconnection — see §6).
+The end of a session is signaled by a `state` message whose `view` carries a `game_result` field (the field is omitted while the game is in progress, and present once the game has ended), followed by a `close` message, followed by the server closing the transport. After receiving `close`, the client MUST NOT send any further messages. The client MAY close the transport at any time (this is treated as a disconnection — see §6).
 
 ---
 
@@ -95,7 +95,7 @@ The catalog is **identical for both clients** — it does not encode the receivi
     "red_hand":       {"owner": "RED",  "role": "hand"},
     "red_deck":       {"owner": "RED",  "role": "deck"},
     "blue_hand":      {"owner": "BLUE", "role": "hand"},
-    "guard_deck":     {"owner": null,   "role": "guard_deck"},
+    "guard_deck":     {"role": "guard_deck"},
     ...
   },
   "weapon_slots": {
@@ -117,7 +117,7 @@ Per-card fields:
 | `name`         | string           | Canonical identifier. Same as the key. Used in `state` and `prompt` messages.            |
 | `display_name` | string           | Player-facing name to render.                                                            |
 | `text`         | string           | Player-facing rules text. May be empty.                                                  |
-| `level`        | int \| null      | Card level (typically for enemies and weapons). `null` if not applicable.                |
+| `level`        | int \| absent    | Card level (typically for enemies and weapons). The key is **omitted** when the card has no level concept (e.g. equipment, events).                |
 | `types`        | array of string  | Subset of `["WEAPON", "EQUIPMENT", "ENEMY", "FOOD", "EVENT"]`. Primary type first.      |
 | `is_elusive`   | bool             | Static gameplay flag.                                                                    |
 | `is_first`     | bool             | Static gameplay flag.                                                                    |
@@ -130,10 +130,10 @@ In particular, the catalog includes **every possible role card** (one per role i
 
 `slots` is a JSON object keyed by **slot wire name**. Each value is a description with two fields:
 
-| Field   | Type            | Description                                                                       |
-| ------- | --------------- | --------------------------------------------------------------------------------- |
-| `owner` | string \| null  | Absolute PID: `"RED"` or `"BLUE"`. `null` for unowned slots (e.g. `guard_deck`).  |
-| `role`  | string          | Semantic role (e.g. `"hand"`, `"deck"`, `"action_field_top_distant"`).            |
+| Field   | Type             | Description                                                                                                  |
+| ------- | ---------------- | ------------------------------------------------------------------------------------------------------------ |
+| `owner` | string \| absent | Absolute PID: `"RED"` or `"BLUE"`. The key is **omitted** for unowned slots (e.g. `guard_deck`).             |
+| `role`  | string           | Semantic role (e.g. `"hand"`, `"deck"`, `"action_field_top_distant"`).                                       |
 
 The client uses `owner` + `role` (compared against its own PID, learned from `pid_assignment`) to know *what* a slot is and whether it belongs to itself, the opponent, or neither. The wire name (the key) is what subsequent `state` messages and `prompt` options reference.
 
@@ -170,21 +170,20 @@ Sent whenever the visible game state for this player has changed. Carries a comp
       ...
     },
     "current_phase": "ACTION",
-    "priority": "RED",
-    "game_result": null
+    "priority": "RED"
   }
 }
 ```
 
 #### View fields
 
-| Field           | Type           | Description                                                                                        |
-| --------------- | -------------- | -------------------------------------------------------------------------------------------------- |
-| `players`       | object         | Map of PID (`"RED"`, `"BLUE"`) → per-player block. Both keys are always present. See below.        |
-| `slots`         | object         | Slot wire name → contents. See §3.2.1.                                                             |
-| `current_phase` | string \| null | Current game phase: `"SETUP"`, `"REFRESH"`, `"MANIPULATION"`, `"ACTION"`, or `null` between phases.|
-| `priority`      | string         | `"RED"` or `"BLUE"`. Whose priority it currently is.                                               |
-| `game_result`   | object \| null | `null` during play. When non-null: `{"winners": [...], "outcome": "<OUTCOME>"}`. See §3.2.2.       |
+| Field           | Type             | Description                                                                                                                                                       |
+| --------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `players`       | object           | Map of PID (`"RED"`, `"BLUE"`) → per-player block. Both keys are always present. See below.                                                                       |
+| `slots`         | object           | Slot wire name → contents. See §3.2.1.                                                                                                                            |
+| `current_phase` | string \| absent | Current game phase: `"SETUP"`, `"REFRESH"`, `"MANIPULATION"`, or `"ACTION"`. The key is **omitted** between phases (no phase currently active).                   |
+| `priority`      | string           | `"RED"` or `"BLUE"`. Whose priority it currently is.                                                                                                              |
+| `game_result`   | object \| absent | `{"winners": [...], "outcome": "<OUTCOME>"}` when the game has ended (see §3.2.2). The key is **omitted** while the game is still in progress.                    |
 
 Each entry in `players` has these fields:
 
@@ -194,7 +193,7 @@ Each entry in `players` has these fields:
 | `alignment` | string \| null | `"GOOD"` or `"EVIL"`. `null` for the opponent (hidden info) and before setup completes.              |
 | `hp`        | int \| null    | Current hit points. `null` for the opponent (hidden info).                                           |
 
-Both `RED` and `BLUE` keys are always present in `players`; the receiving client distinguishes "own" from "opponent" by comparing against the PID it received in `pid_assignment`. Hidden values (e.g. opponent role/alignment/hp) are surfaced as `null` rather than omitted, so the shape is uniform.
+Both `RED` and `BLUE` keys are always present in `players`; the receiving client distinguishes "own" from "opponent" by comparing against the PID it received in `pid_assignment`. Hidden values (e.g. opponent role/alignment/hp) are surfaced as `null` — the values exist on the server side but are not disclosed to this client (a relevant-but-unknown signal). This is distinct from inapplicable fields elsewhere in the protocol, which are omitted entirely rather than set to null.
 
 The client learns its role/alignment from `view.players[<own_pid>]` in the first `state` message that arrives after setup. The role string correlates with a card `name` in the `catalog` — the role card placed into the player's equipment at setup has that exact name. See §3.1.1 for how the catalog lists every possible role card, not just the two assigned this game.
 
@@ -235,7 +234,7 @@ Which slots are visible and which are count-only is determined by fog-of-war rul
 
 #### 3.2.2 Game result
 
-When non-null:
+When present (the field is omitted during play):
 
 | Field     | Type            | Description                                                      |
 | --------- | --------------- | ---------------------------------------------------------------- |
@@ -270,13 +269,13 @@ Event types:
 
 | Event type       | Fields                                                   | Description                                             |
 | ---------------- | -------------------------------------------------------- | ------------------------------------------------------- |
-| `card_moved`     | `source`, `source_index`, `dest`, `dest_index`, `card?` | A card moved between slots. `source`/`source_index` refer to the state *before* the move; `dest`/`dest_index` refer to the state *after*. `source` and `source_index` are both `null` if the card had no prior slot. The optional `card` field carries the card's identity as a `{"name", "counters"}` object (same shape as a slot entry — see §3.2.1) and is included whenever either the source or the destination slot is card-visible to this player; it is omitted when both endpoints are count-only or hidden. The `card` field lets the client predict the next state from events alone, even when the source is count-only (e.g. drawing from one's own deck). |
+| `card_moved`     | `source?`, `source_index?`, `dest`, `dest_index`, `card?` | A card moved between slots. `source`/`source_index` refer to the state *before* the move; `dest`/`dest_index` refer to the state *after*. `source` and `source_index` are both **omitted** if the card had no prior slot. The optional `card` field carries the card's identity as a `{"name", "counters"}` object (same shape as a slot entry — see §3.2.1) and is included whenever either the source or the destination slot is card-visible to this player; it is omitted when both endpoints are count-only or hidden. The `card` field lets the client predict the next state from events alone, even when the source is count-only (e.g. drawing from one's own deck). |
 | `slot_transferred` | `source`, `dest`, `count`                              | All cards of `source` were moved to `dest` as a batch (e.g., refresh pile shuffled into deck). Clients may animate this as a single batch gesture, rather than N individual card moves. |
 | `hp_changed`     | `target`, `old`, `new`                                   | A player's HP changed. `target` is `"RED"` or `"BLUE"`. Per fog-of-war, only emitted for the receiving client's own HP — but the field is included for symmetry with other player-targeted events. |
 | `slot_shuffled`  | `slot`                                                   | A slot was shuffled. `slot` is the wire name.           |
 | `post_manipulate`| `manipulator`, `forced` (manipulator only, optional)     | The manipulator's `PostManipulate` step ran: a third card was drawn from the opponent's deck, mixed with the two manipulation-field cards, and one of the three placed on the opponent's deck-top with the remaining two sent to opponent's refresh. `manipulator` is `"RED"` or `"BLUE"`. The `forced` field is present **only on the event delivered to the manipulator** and **only when the manipulator forced**: it is the integer index (`0` or `1`) of the card the manipulator chose from their sidebar (before the third card was drawn). The third card's identity is never disclosed to either player by this event. No per-card `card_moved` events are emitted for the moves performed inside `PostManipulate`. |
 | `player_died`    | `target`                                                 | A player died. `target` is `"RED"` or `"BLUE"`.         |
-| `phase_changed`  | `phase`                                                  | Game phase changed. `phase` is the phase name or `null`.|
+| `phase_changed`  | `phase?`                                                 | Game phase changed. `phase` is the new phase name; the key is **omitted** when a phase ended without a new one starting (between-phase transitions).|
 | `game_ended`     | `winners`, `outcome`                                     | Game ended with the given result.                       |
 
 The client can cross-reference `source` + `source_index` against the *previous* state snapshot to determine which card moved (for animation); `dest` + `dest_index` can be cross-referenced against the *current* state to locate the card's new position. When the card identity is known to this player (either endpoint card-visible), the `card` field carries it directly so the client need not consult either snapshot to learn the moved card. This is what lets a client maintain its own state purely from the event stream — without the field, a move out of a count-only or hidden source into a card-visible destination (e.g. own draw) would leave the resulting state ambiguous.

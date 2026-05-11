@@ -74,11 +74,12 @@ class Serializer:
                     return None
                 wire: dict = {
                     "type": "card_moved",
-                    "source": source.name if source else None,
-                    "source_index": source_index,
                     "dest": dest.name,
                     "dest_index": dest_index,
                 }
+                if source is not None:
+                    wire["source"] = source.name
+                    wire["source_index"] = source_index
                 if src_vis == "cards" or dst_vis == "cards":
                     wire["card"] = {"name": card.name, "counters": card.counters}
                 return wire
@@ -104,7 +105,10 @@ class Serializer:
             case PlayerDied(target):
                 return {"type": "player_died", "target": target.name}
             case PhaseChanged(phase):
-                return {"type": "phase_changed", "phase": phase.name if phase else None}
+                wire = {"type": "phase_changed"}
+                if phase is not None:
+                    wire["phase"] = phase.name
+                return wire
             case GameEnded(result):
                 return {
                     "type": "game_ended",
@@ -156,14 +160,10 @@ class Serializer:
         # Shared
         slots["guard_deck"] = view.guard_deck_size
 
-        gr = view.game_result
-        game_result = None if gr is None else {
-            "winners": [p.name for p in gr.winners],
-            "outcome": gr.outcome.name,
-        }
-
         # Principled per-player block: own info filled, opponent's role/
-        # alignment/hp are hidden information so they're surfaced as null.
+        # alignment/hp are hidden information so they're surfaced as null
+        # (relevant-but-unknown values, distinct from inapplicable fields
+        # which are omitted entirely).
         players = {
             pid.name: {
                 "role": view.role,
@@ -177,13 +177,20 @@ class Serializer:
             },
         }
 
-        return {
+        out: dict = {
             "players": players,
             "slots": slots,
-            "current_phase": view.current_phase.name if view.current_phase else None,
             "priority": view.priority.name,
-            "game_result": game_result,
         }
+        if view.current_phase is not None:
+            out["current_phase"] = view.current_phase.name
+        gr = view.game_result
+        if gr is not None:
+            out["game_result"] = {
+                "winners": [p.name for p in gr.winners],
+                "outcome": gr.outcome.name,
+            }
+        return out
 
 
 class Accumulator:
@@ -204,15 +211,17 @@ class Accumulator:
 
     def _register_template(self, card: Card) -> None:
         if card.name not in self._card_catalog:
-            self._card_catalog[card.name] = {
+            entry = {
                 "name": card.name,  # pragma: no mutate
                 "display_name": card.display_name,  # pragma: no mutate
                 "text": card.text,  # pragma: no mutate
-                "level": card.level,
                 "types": [t.name for t in card.types],
                 "is_elusive": card.is_elusive,
                 "is_first": card.is_first,
             }
+            if card.level is not None:
+                entry["level"] = card.level
+            self._card_catalog[card.name] = entry
 
     def _register_slot(self, slot: Slot, owner: PID | None, role: str) -> None:
         self._slot_roles.append((owner, role, slot.name))
@@ -299,19 +308,23 @@ class Accumulator:
         """Catalog for session init. Identical for both clients.
 
         Cards, slots, and weapon_slots are all keyed by wire name,
-        mapping to a description dict with owner and role. `owner` is
-        an absolute PID name ("RED" / "BLUE") or null for unowned slots
-        (e.g. the shared guard deck)."""
-        def _owner_label(owner: PID | None) -> str | None:  # pragma: no mutate
-            return owner.name if owner is not None else None  # pragma: no mutate
+        mapping to a description dict with role (and owner if applicable).
+        `owner` is an absolute PID name ("RED" / "BLUE") for owned slots,
+        and is omitted entirely for unowned slots (e.g. the shared guard
+        deck)."""
+        def _slot_entry(owner: PID | None, role: str) -> dict:  # pragma: no mutate
+            entry: dict = {"role": role}  # pragma: no mutate
+            if owner is not None:
+                entry["owner"] = owner.name  # pragma: no mutate
+            return entry
 
         slots: dict[str, dict] = {}  # pragma: no mutate
         for owner, role, name in self._slot_roles:
-            slots[name] = {"owner": _owner_label(owner), "role": role}  # pragma: no mutate
+            slots[name] = _slot_entry(owner, role)  # pragma: no mutate
 
         weapon_slots: dict[str, dict] = {}  # pragma: no mutate
         for owner, role, name in self._ws_roles:
-            weapon_slots[name] = {"owner": _owner_label(owner), "role": role}  # pragma: no mutate
+            weapon_slots[name] = _slot_entry(owner, role)  # pragma: no mutate
 
         return {
             "cards": self._card_catalog,

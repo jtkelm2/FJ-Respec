@@ -328,15 +328,16 @@ class TestFogOfWarFiltering:
         assert "card" not in wire
 
     def test_card_field_with_no_source(self):
-        # Card created out of thin air (source=None) into a card-visible slot
-        # still gets the card field because the destination is card-visible.
+        # Card created out of thin air (source=None) into a card-visible slot:
+        # gets the card field because the destination is card-visible, and the
+        # source/source_index keys are omitted entirely (irrelevant — no prior slot).
         g, ser = self._setup()
         c = food(4)
         event = CardMoved(c, None, None, g.players[PID.RED].hand, 0)
         wire = ser._serialize_event(event, PID.RED)
         assert wire is not None
-        assert wire["source"] is None
-        assert wire["source_index"] is None
+        assert "source" not in wire
+        assert "source_index" not in wire
         assert wire["card"] == {"name": "food_4", "counters": 0}
 
     def test_opponent_hp_change_hidden(self):
@@ -359,6 +360,16 @@ class TestFogOfWarFiltering:
         wire = ser._serialize_event(event, PID.RED)
         assert wire is not None
         assert wire["phase"] == "ACTION"
+
+    def test_phase_changed_to_none_omits_phase_key(self):
+        """When a phase ends without a new one starting, the `phase` key is
+        omitted entirely (irrelevant — there is no new phase to name)."""
+        g, ser = self._setup()
+        event = PhaseChanged(None)
+        wire = ser._serialize_event(event, PID.RED)
+        assert wire is not None
+        assert wire["type"] == "phase_changed"
+        assert "phase" not in wire
 
     def test_player_died_always_visible(self):
         g, ser = self._setup()
