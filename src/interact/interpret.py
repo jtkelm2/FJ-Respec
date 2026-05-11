@@ -64,6 +64,8 @@ class ViewPushingInterpreter(Interpreter):
         self._players = players
         self._inner = inner
         self._last_view: dict[PID, PlayerView] = {}
+        for pid in PID:
+           self.push_if_changed(pid, None)
 
     def push_if_changed(self, pid: PID, events: list[Event] | None = None) -> None:
         view = compute_player_view(self._g, pid)
