@@ -117,8 +117,9 @@ class Serializer:
                 }
             case PostManipulated(manipulator, forced):
                 wire: dict = {"type": "post_manipulate", "manipulator": manipulator.name}
-                if pid == manipulator and forced is not None:
-                    wire["forced"] = forced
+                if pid == manipulator:
+                    wire["effect"] = "hide"
+                    if forced is not None: wire["forced"] = forced
                 return wire
             case _:
                 return None
