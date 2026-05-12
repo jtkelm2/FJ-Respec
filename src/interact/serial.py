@@ -152,6 +152,8 @@ class Serializer:
         slots[f"{o_pre}_deck"] = view.opp_deck_size
         slots[f"{o_pre}_action_field_top_distant"] = _cards(view.opp_action_field_top_distant)
         slots[f"{o_pre}_action_field_bottom_distant"] = _cards(view.opp_action_field_bottom_distant)
+        slots[f"{o_pre}_hand"] = view.opp_hand_size
+        slots[f"{o_pre}_sidebar"] = view.opp_sidebar_size
 
         # Own weapon holders + killstacks (public to the owner — card lists of length 0 or N)
         for i, (card, _, killstack) in enumerate(view.weapons):
@@ -275,7 +277,7 @@ class Accumulator:
     })
     # Roles whose count is visible to the opponent
     _COUNT_VISIBLE_OPP = frozenset({
-        "deck",
+        "deck", "sidebar", "hand"
     })
 
     def _build_visibility(self) -> dict[PID, dict[Slot, str]]:

@@ -923,6 +923,8 @@ class PlayerView:
     opp_deck_size: int
     opp_action_field_top_distant: list[Card]
     opp_action_field_bottom_distant: list[Card]
+    opp_hand_size: int
+    opp_sidebar_size: int
 
     # Shared
     current_phase: Phase | None
@@ -958,6 +960,8 @@ def compute_player_view(g: GameState, pid: PID) -> PlayerView:
         opp_deck_size=len(opp.deck.cards),
         opp_action_field_top_distant=list(opp.action_field.top_distant.cards),
         opp_action_field_bottom_distant=list(opp.action_field.bottom_distant.cards),
+        opp_hand_size=len(opp.hand.cards),
+        opp_sidebar_size=len(opp.sidebar.cards),
 
         current_phase=g.current_phase,
         priority=g.priority,
