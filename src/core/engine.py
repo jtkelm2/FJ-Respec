@@ -230,6 +230,7 @@ def _apply_action(action: Action) -> Effect:
                 p.role = role
                 p.alignment = role.alignment
                 p.equipment.slot(card)
+                g._event_log.append(RoleAssigned(player, card, role))
                 g._event_log.append(CardMoved(card, None, None, p.equipment, 0))
             case DistancePenalty(player, source):
                 yield from do(Damage(player, 3, "distance penalty"))(g)  # pragma: no mutate

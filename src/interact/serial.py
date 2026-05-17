@@ -13,7 +13,7 @@ post-catalog `pid_assignment` notify.
 """
 
 from core.type import (
-    Card, GameState, PID, Slot, WeaponSlot, Phase,
+    Card, GameState, PID, Role, RoleAssigned, Slot, WeaponSlot, Phase,
     PlayerView, Option, Event, GameResult,
     CardOption, SlotOption, WeaponSlotOption, TextOption,
     CardMoved, SlotTransferred, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
@@ -64,6 +64,14 @@ class Serializer:
             if wire is not None:
                 result.append(wire)
         return result
+    
+    @staticmethod
+    def _serialize_card(card:Card) -> dict:
+        return {"name": card.name, "counters": card.counters}
+    
+    @staticmethod
+    def _serialize_role(role:Role) -> dict:
+        return {"name": role.name, "alignment": role.alignment.name}
 
     def _serialize_event(self, event:Event, pid: PID) -> dict | None:
         match event:
@@ -81,7 +89,7 @@ class Serializer:
                     wire["source"] = source.name
                     wire["source_index"] = source_index
                 if src_vis == "cards" or dst_vis == "cards":
-                    wire["card"] = {"name": card.name, "counters": card.counters}
+                    wire["card"] = self._serialize_card(card)
                 return wire
             case SlotTransferred(source, dest, count):
                 src_vis = self._vis(source, pid)
@@ -121,6 +129,9 @@ class Serializer:
                     wire["effect"] = "hide"
                     if forced is not None: wire["forced"] = forced
                 return wire
+            case RoleAssigned(player, card, role):
+                if player != pid: return None
+                return {"type": "role_assigned", "player": player.name, "card": self._serialize_card(card), "role": self._serialize_role(role)}
             case _:
                 return None
 

@@ -896,6 +896,11 @@ class PostManipulated(Event):
   manipulator: PID
   forced: int | None = None  # sidebar index of the forced card; None if not forcing
 
+@dataclass
+class RoleAssigned(Event):
+  player: PID
+  card: Card
+  role: Role
 
 ############# Player View ########
 
