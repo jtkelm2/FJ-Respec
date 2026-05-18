@@ -6,7 +6,13 @@ from threading import Event, Thread
 
 from core.type import Option, PID, PlayerView, PromptHalf
 from interact.connection import Connection
-from interact.serial import Serializer, ClientOption
+from interact.serial import (
+    Serializer, ClientOption,
+    Info, PidAssignment, Notification, notify_message,
+)
+
+# Re-exported so callers can still `from interact.player import Info, PidAssignment, Notification`.
+_ = (Info, PidAssignment, Notification, notify_message)
 
 log = getLogger("server")
 
@@ -32,19 +38,6 @@ class Disconnect:
 OOB = Resigned | DrawOffered | DrawAccepted | Disconnect
 
 
-# ── Notification types ───────────────────────────────────────
-
-@dataclass
-class Info:
-    text: str
-
-@dataclass
-class PidAssignment:
-    pid: PID
-
-Notification = Info | PidAssignment
-
-
 # ── Player contract ──────────────────────────────────────────
 
 class Player:
@@ -56,8 +49,11 @@ class Player:
     pass
 
   @abstractmethod
-  def prompt(self, prompt_half: PromptHalf) -> Option:
-    """Send a prompt and block until the player responds with a chosen Option."""
+  def prompt(self, prompt_half: PromptHalf) -> Option | list[Option]:
+    """Send a prompt and block until the player responds.
+
+    Returns a single Option when `prompt_half.must_select == 1`, otherwise a
+    list[Option] of length exactly `must_select`."""
     pass
 
   @abstractmethod
@@ -88,8 +84,11 @@ class ScriptedPlayer(Player):
   def push_state(self, view: PlayerView, events: list | None = None) -> None:
     pass
 
-  def prompt(self, prompt_half: PromptHalf) -> Option:
-    return self.script.pop(0)
+  def prompt(self, prompt_half: PromptHalf) -> Option | list[Option]:
+    n = prompt_half.must_select
+    if n == 1:
+      return self.script.pop(0)
+    return [self.script.pop(0) for _ in range(n)]
 
   def receive_oob(self) -> OOB:
     self._never.wait()
@@ -117,7 +116,7 @@ class RemotePlayer(Player):
     self._pid = pid
     self._label = label
     self._last_options: list[Option] = []
-    self._option_queue: Queue[Option] = Queue()
+    self._option_queue: Queue[Option | list[Option]] = Queue()
     self._oob_queue: Queue[OOB] = Queue()
     self._listener = Thread(target=self._listen, daemon=True, name=f"recv-{label}")
     self._listener.start()
@@ -135,7 +134,10 @@ class RemotePlayer(Player):
         log.info("[%s] <<< %s", self._label, msg)
         match msg.get("type"):
           case "response":
-            self._option_queue.put(self._resolve_option(msg["option"]))
+            if "options" in msg:
+              self._option_queue.put([self._resolve_option(o) for o in msg["options"]])
+            else:
+              self._option_queue.put(self._resolve_option(msg["option"]))
           case "resign":
             self._oob_queue.put(Resigned())
           case "draw_offer":
@@ -149,35 +151,18 @@ class RemotePlayer(Player):
       self._oob_queue.put(Disconnect())
 
   def push_state(self, view: PlayerView, events: list | None = None) -> None:
-    msg: dict = {"type": "state", "view": self._serializer.player_view(view, self._pid)}
-    if events:
-      wire_events = self._serializer.events(events, self._pid)
-      if wire_events:
-        msg["events"] = wire_events
-    self.send(msg)
+    self.send(self._serializer.state_message(view, self._pid, events))
 
-  def prompt(self, prompt_half: PromptHalf) -> Option:
+  def prompt(self, prompt_half: PromptHalf) -> Option | list[Option]:
     self._last_options = list(prompt_half.options)
-    msg: dict = {
-      "type": "prompt",
-      "text": prompt_half.text,
-      "options": [self._serializer.option(o) for o in prompt_half.options],
-    }
-    if prompt_half.context:
-      msg["context"] = [self._serializer.option(o) for o in prompt_half.context]
-    self.send(msg)
+    self.send(self._serializer.prompt_message(prompt_half))
     return self._option_queue.get()
 
   def receive_oob(self) -> OOB:
     return self._oob_queue.get()
 
   def notify(self, notification: Notification) -> None:
-    match notification:
-      case Info(text):
-        msg = {"type": "notify", "kind": "info", "text": text}
-      case PidAssignment(pid):
-        msg = {"type": "notify", "kind": "pid_assignment", "pid": pid.name}
-    self.send(msg)
+    self.send(notify_message(notification))
 
   def close(self) -> None:
     try:

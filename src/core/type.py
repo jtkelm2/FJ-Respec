@@ -144,6 +144,17 @@ class CardOption(Option):
   def __str__(self): return self.card.display_name  # pragma: no mutate
 
 @dataclass
+class RevealedCardOption(Option):
+  """A card identified by template name only (no slot/index).
+
+  Use when the card lives in a slot that's hidden from the recipient — opponent's
+  hand, own deck/refresh, etc. — so a location-anchored CardOption would dangle on
+  the client. Counters are intentionally omitted; counter state would itself leak
+  hidden information."""
+  card: Card
+  def __str__(self): return self.card.display_name  # pragma: no mutate
+
+@dataclass
 class SlotOption(Option):
   slot: Slot
   def __str__(self):  # pragma: no mutate
@@ -167,6 +178,7 @@ class PromptHalf:
   text: str
   options: list[Option]
   context: list[Option] = field(default_factory=list)
+  must_select: int = 1
 
 class PKind(Enum):
   BOTH = auto()
@@ -186,7 +198,7 @@ def AskBoth(asks: dict[PID,PromptHalf]) -> Prompt:
 def AskEither(asks: dict[PID,PromptHalf]) -> Prompt:
   return Prompt(asks, PKind.EITHER)
 
-Response = dict[PID, Option]
+Response = dict[PID, Option | list[Option]]
 
 class PromptBuilder:
   """Accumulates typed Options, builds a Prompt."""
@@ -195,14 +207,22 @@ class PromptBuilder:
     self._text = text
     self._options: list[Option] = []
     self._context: list[Option] = []
+    self._must_select: int = 1
 
   def add(self, option: Option):
     self._options.append(option)
     return self
 
-  def add_cards(self, cards: "list[Card]"):
+  def add_cards(self, cards: list[Card]):
     for card in cards:
       self._options.append(CardOption(card))
+    return self
+
+  def add_revealed_cards(self, cards: list[Card]):
+    """Shortcut: append one RevealedCardOption per card. Use for selectable
+    cards in slots hidden from the recipient."""
+    for card in cards:
+      self._options.append(RevealedCardOption(card))
     return self
 
   def add_if(self, cond: bool, option: Option):
@@ -215,8 +235,16 @@ class PromptBuilder:
     self._context.append(option)
     return self
 
+  def must_select(self, n: int):
+    """Require the player to respond with exactly n options from `options`.
+    `n == 0` is valid — pair it with `add_revealed_cards(...)` for a view-only
+    reveal whose response is an empty list."""
+    assert n >= 0
+    self._must_select = n
+    return self
+
   def _half(self) -> PromptHalf:
-    return PromptHalf(self._text, list(self._options), list(self._context))  # pragma: no mutate
+    return PromptHalf(self._text, list(self._options), list(self._context), must_select=self._must_select)  # pragma: no mutate
 
   def build(self, pid: PID) -> Prompt:
     return Prompt({pid: self._half()}, PKind.EITHER)  # pragma: no mutate

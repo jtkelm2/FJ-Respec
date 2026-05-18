@@ -3,7 +3,7 @@ from core.type import (
     Action, Discard, Damage, Slay, Wield, Refresh, SlotCard, DistancePenalty,
     AddCounter, EndActionPhase,
     Effect, GameState, Negotiation,
-    PromptBuilder, TextOption, CardOption,
+    PromptBuilder, TextOption,
 )
 from core.engine import do
 
@@ -55,11 +55,10 @@ def weapon_3() -> Card:
             response = yield pb.build(discarder)
             if response[discarder] == TextOption("Yes"):
                 yield from do(Damage(opp, 3, "Piñata Stick"))(g)  # pragma: no mutate
-                opp_hand = g.players[opp].hand.cards
-                pb2 = PromptBuilder("Opponent's hand:")  # pragma: no mutate
-                for c in opp_hand:
-                    pb2.context(CardOption(c))
-                pb2.add(TextOption("OK"))  # pragma: no mutate
+                opp_hand = list(g.players[opp].hand.cards)
+                pb2 = (PromptBuilder("Opponent's hand:")  # pragma: no mutate
+                        .add_revealed_cards(opp_hand)
+                        .must_select(0))
                 yield pb2.build(discarder)
         return eff
     card.traits = [Trait.on_discard(card, callback)]

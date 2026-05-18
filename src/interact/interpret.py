@@ -94,7 +94,7 @@ class AsyncAggregateInterpreter(Interpreter):
 
     def __init__(self, red: Player, blue: Player):
         self._players = {PID.RED: red, PID.BLUE: blue}
-        self._inbox: Queue[tuple[PID, Option]] = Queue()
+        self._inbox: Queue[tuple[PID, Option | list[Option]]] = Queue()
         self._outstanding: set[PID] = set()
 
     def interpret(self, prompt: Prompt) -> Response:
@@ -127,7 +127,7 @@ class AsyncAggregateInterpreter(Interpreter):
         for pid, half in prompt.for_player.items():
             self._spawn_prompt(pid, half)
 
-        results: dict[PID, Option] = {}
+        results: dict[PID, Option | list[Option]] = {}
         needed = set(prompt.for_player.keys())
 
         while needed:

@@ -12,10 +12,12 @@ is identical for both clients. Each client learns its own PID from a
 post-catalog `pid_assignment` notify.
 """
 
+from dataclasses import dataclass
+
 from core.type import (
     Card, GameState, PID, Role, RoleAssigned, Slot, WeaponSlot, Phase,
-    PlayerView, Option, Event, GameResult,
-    CardOption, SlotOption, WeaponSlotOption, TextOption,
+    PlayerView, Option, Event, GameResult, PromptHalf,
+    CardOption, RevealedCardOption, SlotOption, WeaponSlotOption, TextOption,
     CardMoved, SlotTransferred, HPChanged, SlotShuffled, PlayerDied, PhaseChanged, GameEnded,
     PostManipulated,
     other,
@@ -23,6 +25,28 @@ from core.type import (
 
 type ClientOption = dict
 type ClientPlayerView = dict
+
+
+# ── Notification types (outbound, non-interactive) ────────────────────────
+
+@dataclass
+class Info:
+    text: str
+
+@dataclass
+class PidAssignment:
+    pid: PID
+
+Notification = Info | PidAssignment
+
+
+def notify_message(notif: Notification) -> dict:
+    """Wire envelope for a notify (no Serializer state needed)."""
+    match notif:
+        case Info(text):
+            return {"type": "notify", "kind": "info", "text": text}
+        case PidAssignment(pid):
+            return {"type": "notify", "kind": "pid_assignment", "pid": pid.name}
 
 
 class Serializer:
@@ -45,6 +69,8 @@ class Serializer:
                     "slot": card.slot.name,  # pragma: no mutate
                     "index": card.slot.cards.index(card),
                 }
+            case RevealedCardOption(card):
+                return {"type": "revealed_card", "name": card.name}  # pragma: no mutate
             case SlotOption(slot):
                 return {"type": "slot", "name": slot.name}  # pragma: no mutate
             case WeaponSlotOption(ws):
@@ -66,9 +92,12 @@ class Serializer:
         return result
     
     @staticmethod
-    def _serialize_card(card:Card) -> dict:
-        return {"name": card.name, "counters": card.counters}
-    
+    def _serialize_card(card:Card, counters: bool = True) -> dict:
+        out: dict = {"name": card.name}
+        if counters:
+            out["counters"] = card.counters
+        return out
+
     @staticmethod
     def _serialize_role(role:Role) -> dict:
         return {"name": role.name, "alignment": role.alignment.name}
@@ -141,7 +170,7 @@ class Serializer:
         o_pre = opp.name.lower()
 
         def _cards(cards: list[Card]) -> list[dict]:
-            return [{"name": card.name, "counters": card.counters} for card in cards] # pragma: no mutate
+            return [self._serialize_card(card) for card in cards]  # pragma: no mutate
 
         slots: dict[str, list[dict] | int] = {}
 
@@ -205,6 +234,30 @@ class Serializer:
                 "outcome": gr.outcome.name,
             }
         return out
+
+    def state_message(self, view: PlayerView, pid: PID,
+                      events: list[Event] | None = None) -> dict:
+        """Wire envelope for a `state` push: view + optional events."""
+        msg: dict = {"type": "state", "view": self.player_view(view, pid)}
+        if events:
+            wire_events = self.events(events, pid)
+            if wire_events:
+                msg["events"] = wire_events
+        return msg
+
+    def prompt_message(self, half: PromptHalf) -> dict:
+        """Wire envelope for a `prompt`. `must_select` is included only when > 1
+        (default 1 is the existing single-select contract)."""
+        msg: dict = {
+            "type": "prompt",
+            "text": half.text,
+            "options": [self.option(o) for o in half.options],
+        }
+        if half.context:
+            msg["context"] = [self.option(o) for o in half.context]
+        if half.must_select != 1:
+            msg["must_select"] = half.must_select
+        return msg
 
 
 class Accumulator:

@@ -5,7 +5,7 @@ from core.type import (
     AddCounter, EndActionPhase, AddToKillstack,
     Modifier, MKind, Sharpness, WORLD_NAME,
     Effect, GameState, Negotiation,
-    PromptBuilder, TextOption, CardOption,
+    PromptBuilder, TextOption, CardOption, RevealedCardOption,
 )
 from core.engine import do
 
@@ -503,7 +503,7 @@ def the_world() -> Card:
 def the_high_priestess() -> Card:
     card = Card(
         "major_2", "The High Priestess",  # pragma: no mutate
-        "On resolve: Name up to 2 cards. Then, look at the cards in the refresh pile. "  # pragma: no mutate
+        "On resolve: Name 2 cards. Then, look at the cards in the refresh pile. "  # pragma: no mutate
         "For each card in the pile that you named, choose: Heal 7 HP, "  # pragma: no mutate
         "Deal 7 damage, or Force equipment discard.",  # pragma: no mutate
         None, (CardType.EVENT,),
@@ -515,22 +515,28 @@ def the_high_priestess() -> Card:
             p = g.players[resolver]
             opp = other(resolver)
             refresh_names = {c.name for c in p.refresh.cards}
-            all_names = sorted({c.name for c in p.deck.cards} | refresh_names
-                               | {c.name for c in p.discard.cards})
-            named: list[str] = []
-            for i in range(2):
-                remaining = [n for n in all_names if n not in named]
-                if not remaining: break
-                pb = PromptBuilder(f"High Priestess: Name card ({i+1}/2)")  # pragma: no mutate
-                for n in remaining:
-                    pb.add(TextOption(n))  # pragma: no mutate
-                pb.add(TextOption("Done"))  # pragma: no mutate
+            # Pool: one representative Card per distinct name across deck/refresh/discard.
+            pool: dict[str, Card] = {}
+            for src in (p.deck.cards, p.refresh.cards, p.discard.cards):
+                for c in src:
+                    pool.setdefault(c.name, c)
+            reps = [pool[n] for n in sorted(pool.keys())]
+            # Edge: fewer than 2 distinct names — fall back to whatever's available.
+            n_pick = min(2, len(reps))
+            chosen: list[Card] = []
+            if n_pick > 0:
+                pb = PromptBuilder("High Priestess: Name 2 cards")  # pragma: no mutate
+                pb.add_revealed_cards(reps).must_select(n_pick)
                 response = yield pb.build(resolver)
-                choice = response[resolver]
-                assert isinstance(choice, TextOption)
-                if choice.text == "Done": break
-                named.append(choice.text)
-            hits = [n for n in named if n in refresh_names]
+                picks = response[resolver]
+                assert isinstance(picks, list)
+                for opt in picks:
+                    assert isinstance(opt, RevealedCardOption)
+                    chosen.append(opt.card)
+            hits = [c.display_name for c in chosen if c.name in refresh_names]
+            refresh_cards = list(p.refresh.cards)
+            g.rng.shuffle(refresh_cards)
+            yield PromptBuilder("Your refresh pile (shuffled)").add_revealed_cards(refresh_cards).must_select(0).build(a.resolver)
             for name in hits:
                 pb = PromptBuilder(f"High Priestess: {name} found! Choose:")  # pragma: no mutate
                 pb.add(TextOption("Heal 7"))  # pragma: no mutate
@@ -552,6 +558,7 @@ def the_high_priestess() -> Card:
                         r2_opt = r2[opp]
                         assert isinstance(r2_opt, CardOption)
                         yield from do(Discard(opp, r2_opt.card, "High Priestess"))(g)  # pragma: no mutate
+                    else: yield PromptBuilder("Opponent has no equipment").add(TextOption("Ok")).build(a.resolver)
         return eff
     card.traits = [Trait.on_resolve(card, callback)]
     return card

@@ -262,8 +262,10 @@ class TestFogOfWarFiltering:
     def test_opponent_hidden_to_hidden_omitted(self):
         g, ser = self._setup()
         c = food(3)
-        g.players[PID.BLUE].hand.slot(c)
-        event = CardMoved(c, g.players[PID.BLUE].hand, 0, g.players[PID.BLUE].refresh, 0)
+        # BLUE's refresh and discard are both hidden from RED (opp_hand/sidebar are
+        # count-visible per the current visibility table — see Accumulator._COUNT_VISIBLE_OPP).
+        g.players[PID.BLUE].refresh.slot(c)
+        event = CardMoved(c, g.players[PID.BLUE].refresh, 0, g.players[PID.BLUE].discard, 0)
         wire = ser._serialize_event(event, PID.RED)
 
         assert wire is None  # both hidden from RED

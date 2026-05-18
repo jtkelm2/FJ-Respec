@@ -40,14 +40,12 @@ The `Interpreter` abstraction is the boundary between engine and frontend. Befor
 
 ### New features must be validated
 
-Every new feature, action, or phase must be accompanied by tests that pass both the test suite and mutation testing. The workflow:
+Every new feature, action, or phase must be accompanied by tests with strong oracles. The workflow:
 
 1. Write tests with strong oracles (specific value assertions, not just "didn't crash").
 2. Run `python -m pytest tests/`.
-3. Run `mutmut run`, then `mutmut results` and `mutmut show <name>` to inspect survivors.
-4. Any surviving mutant that changes *control flow* or *arithmetic* in the new code represents a real test gap. Write a targeted test to kill it, then rerun.
 
-The goal is not 100% mutation score — it's that every *behavioral* mutant in the new code is killed.
+> **Mutation testing is currently paused (as of 2026-05-17).** Skip the `mutmut` steps below until it resumes; pytest is the only gate. Existing `# pragma: no mutate` annotations may stay in source — they're cheap and ready for when mutation testing comes back.
 
 ### What makes a test worth writing
 
@@ -68,6 +66,8 @@ Test quality is not measured by line coverage. Line coverage tells you code was 
 - **Scripted interpreters** — `interp(0, 1, blue=[0])` from `tests/helpers.py` provides deterministic player choices. When testing `simultaneously()`, RED is answered first (dict insertion order), and each player's prompts interleave accordingly.
 
 ### Mutation testing with mutmut
+
+> **Paused as of 2026-05-17.** Section retained for when mutation testing resumes.
 
 Configured in `setup.cfg`. Commands:
 

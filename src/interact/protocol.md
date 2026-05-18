@@ -223,7 +223,8 @@ Which slots are visible and which are count-only is determined by fog-of-war rul
 
 | Slot type                             | Own view      | Opponent's view |
 | ------------------------------------- | ------------- | --------------- |
-| hand, equipment, sidebar              | card list     | hidden          |
+| hand, sidebar                         | card list     | count           |
+| equipment                             | card list     | hidden          |
 | deck                                  | count         | count           |
 | refresh, discard                      | count         | hidden          |
 | action field distant (top/bottom)     | card list     | card list       |
@@ -257,7 +258,8 @@ The `state` message MAY include an `events` array describing what happened since
     {"type": "slot_transferred", "source": "red_refresh", "dest": "red_deck", "count": 20},
     {"type": "hp_changed", "target": "RED", "old": 20, "new": 15},
     {"type": "slot_shuffled", "slot": "red_deck"},
-    {"type": "post_manipulate", "manipulator": "RED", "forced": 1},
+    {"type": "post_manipulate", "manipulator": "RED", "effect": "hide", "forced": 1},
+    {"type": "role_assigned", "player": "RED", "card": {"name": "detective", "counters": 0}, "role": {"name": "Detective", "alignment": "GOOD"}},
     {"type": "player_died", "target": "RED"},
     {"type": "phase_changed", "phase": "ACTION"},
     {"type": "game_ended", "winners": ["RED"], "outcome": "GOOD_KILLED_EVIL"}
@@ -273,7 +275,8 @@ Event types:
 | `slot_transferred` | `source`, `dest`, `count`                              | All cards of `source` were moved to `dest` as a batch (e.g., refresh pile shuffled into deck). Clients may animate this as a single batch gesture, rather than N individual card moves. |
 | `hp_changed`     | `target`, `old`, `new`                                   | A player's HP changed. `target` is `"RED"` or `"BLUE"`. Per fog-of-war, only emitted for the receiving client's own HP — but the field is included for symmetry with other player-targeted events. |
 | `slot_shuffled`  | `slot`                                                   | A slot was shuffled. `slot` is the wire name.           |
-| `post_manipulate`| `manipulator`, `forced` (manipulator only, optional)     | The manipulator's `PostManipulate` step ran: a third card was drawn from the opponent's deck, mixed with the two manipulation-field cards, and one of the three placed on the opponent's deck-top with the remaining two sent to opponent's refresh. `manipulator` is `"RED"` or `"BLUE"`. The `forced` field is present **only on the event delivered to the manipulator** and **only when the manipulator forced**: it is the integer index (`0` or `1`) of the card the manipulator chose from their sidebar (before the third card was drawn). The third card's identity is never disclosed to either player by this event. No per-card `card_moved` events are emitted for the moves performed inside `PostManipulate`. |
+| `post_manipulate`| `manipulator`, `effect` (manipulator only), `forced` (manipulator only, optional) | The manipulator's `PostManipulate` step ran: a third card was drawn from the opponent's deck, mixed with the two manipulation-field cards, and one of the three placed on the opponent's deck-top with the remaining two sent to opponent's refresh. `manipulator` is `"RED"` or `"BLUE"`. The `effect` field is present **only on the event delivered to the manipulator** and is the literal string `"hide"`; it signals that the client should fold the post-manipulate sidebar cards back into the refresh visually (rather than animating them to specific destinations the player isn't entitled to see). The `forced` field is present **only on the event delivered to the manipulator** and **only when the manipulator forced**: it is the integer index (`0` or `1`) of the card the manipulator chose from their sidebar (before the third card was drawn). The third card's identity is never disclosed to either player by this event. No per-card `card_moved` events are emitted for the moves performed inside `PostManipulate`. |
+| `role_assigned`  | `player`, `card`, `role`                                 | A role card was assigned to a player. `player` is `"RED"` or `"BLUE"`. `card` is a card object (`{name, counters}`) identifying the role card now in the player's equipment. `role` is `{name, alignment}` where `alignment` is `"GOOD"` or `"EVIL"`. Only delivered to the receiving player — opponent role is hidden information. |
 | `player_died`    | `target`                                                 | A player died. `target` is `"RED"` or `"BLUE"`.         |
 | `phase_changed`  | `phase?`                                                 | Game phase changed. `phase` is the new phase name; the key is **omitted** when a phase ended without a new one starting (between-phase transitions).|
 | `game_ended`     | `winners`, `outcome`                                     | Game ended with the given result.                       |
@@ -288,7 +291,7 @@ Events are fog-of-war filtered per player:
 
 ### 3.3 `prompt`
 
-Asks the player to choose one option.
+Asks the player to choose one or more options.
 
 ```json
 {
@@ -304,11 +307,14 @@ Asks the player to choose one option.
 }
 ```
 
-| Field     | Type                        | Notes                                                                                     |
-| --------- | --------------------------- | ----------------------------------------------------------------------------------------- |
-| `text`    | string                      | Player-facing prompt text. May be empty.                                                  |
-| `options` | array of *Option*           | Non-empty. The client must respond with one of these (see §5.1).                          |
-| `context` | array of *Option* \| absent | Optional. Game objects relevant to the prompt but NOT selectable. Same schema as options. Clients MAY use context to highlight referenced cards/slots visually; clients that ignore `context` still work correctly. The client MUST NOT echo a context option as a response. |
+| Field          | Type                        | Notes                                                                                     |
+| -------------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| `text`         | string                      | Player-facing prompt text. May be empty.                                                  |
+| `options`      | array of *Option*           | Non-empty. The client must respond by selecting exactly `must_select` of these (see §5.1). |
+| `context`      | array of *Option* \| absent | Optional. Game objects relevant to the prompt but NOT selectable. Same schema as options. Clients MAY use context to highlight referenced cards/slots visually; clients that ignore `context` still work correctly. The client MUST NOT echo a context option as a response. |
+| `must_select`  | int \| absent               | Optional, default `1`. Exactly this many options must be selected. The field is **omitted** when `must_select == 1` (single-select, the legacy contract). When present, it is `>= 0`. `must_select == 0` means view-only acknowledgement — the client responds with an empty `options` array. Duplicates among the selected options are permitted iff the same wire-equal option appears multiple times in `options`. |
+
+When `options` contains any `revealed_card` entries, **every** entry in `options` must be `revealed_card` (no mixing with `text`, `card`, `slot`, or `weapon_slot`): a reveal IS the prompt, and any follow-up decision belongs in a separate prompt. Likewise `context` must not contain `revealed_card` entries — revealed cards always go in `options`.
 
 #### 3.3.1 Option types
 
@@ -316,6 +322,7 @@ Asks the player to choose one option.
 | --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `text`          | `{"type": "text", "text": <string>}`                      | A free-text choice (e.g. `"Yes"`, `"Cancel"`, `"Pass"`). Render the `text` field as the label.                                      |
 | `card`          | `{"type": "card", "slot": <string>, "index": <int>}`      | Choose a specific card by its location. `slot` is a slot wire name, `index` is the position within that slot. The client can look up the card entry at `slots[slot][index]` in the last `state` message and read its `name` field to render it. |
+| `revealed_card` | `{"type": "revealed_card", "name": <string>}`             | Choose (or reveal) a card identified by its template name from the catalog. Used when the card's slot is hidden from this client (e.g. revealing opponent's hand, picking by name from your own deck/refresh) — a location-anchored `card` option would dangle because the slot's contents are not in `state.slots`. Counter state is intentionally not included; it would itself leak hidden information. The server MAY send multiple `revealed_card` options with the same `name` if the underlying pool has duplicates; in that case the client SHOULD render them once and any matching echo is treated as a valid response. |
 | `slot`          | `{"type": "slot", "name": <string>}`                      | Choose a slot. `name` is a slot wire name from the catalog.                                                                          |
 | `weapon_slot`   | `{"type": "weapon_slot", "name": <string>}`               | Choose a weapon slot. `name` is a weapon slot wire name from the catalog.                                                            |
 
@@ -395,7 +402,9 @@ Whenever the client sends an option back as part of a `response`, it MUST echo t
 
 ### 5.1 Response messages
 
-In response to a `prompt`, the client sends:
+In response to a `prompt`, the client sends one of two shapes, determined by the prompt's `must_select`:
+
+**Single-select** (when `must_select` is absent or `1`):
 
 ```json
 {"type": "response", "option": {"type": "card", "slot": "red_hand", "index": 0}}
@@ -404,6 +413,27 @@ In response to a `prompt`, the client sends:
 | Field    | Type   | Notes                                                                                              |
 | -------- | ------ | -------------------------------------------------------------------------------------------------- |
 | `option` | object | Must be structurally equal to one of the option dicts in the most recent `prompt` for this player. |
+
+**List-select** (when `must_select` is `0` or `>= 2`):
+
+```json
+{"type": "response", "options": [
+  {"type": "revealed_card", "name": "enemy_3"},
+  {"type": "revealed_card", "name": "food_5"}
+]}
+```
+
+When `must_select == 0` (view-only reveal), the array is empty:
+
+```json
+{"type": "response", "options": []}
+```
+
+| Field     | Type           | Notes                                                                                                                                                                 |
+| --------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `options` | array of object | Exactly `must_select` entries (may be empty when `must_select == 0`). Each must be structurally equal to one of the option dicts in the most recent `prompt` for this player. Order is preserved end-to-end. |
+
+The two shapes are disambiguated by which key is present (`option` vs `options`). A client SHOULD use the shape that matches the prompt's `must_select`; servers MUST accept the matching shape and MAY reject mismatched shapes.
 
 ### 5.2 Prompt ordering invariants
 

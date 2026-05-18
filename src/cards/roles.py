@@ -8,7 +8,7 @@ from core.type import (
     would_kill_enemy,
     Modifier, MKind, CanCallGuards, CanRun, Sharpness,
     Effect, GameState, Negotiation,
-    PromptBuilder, TextOption, CardOption,
+    PromptBuilder, TextOption,
     WORLD_NAME,
 )
 from core.engine import do, query
@@ -298,11 +298,12 @@ def detective() -> Card:
             p = g.players[pid]
             deck_cards = list(p.deck.cards)
             refresh_cards = list(p.refresh.cards)
-            pb = PromptBuilder("Detective: Your deck and refresh pile")  # pragma: no mutate
-            for c in deck_cards + refresh_cards:
-                pb.context(CardOption(c))
-            pb.add(TextOption("OK"))  # pragma: no mutate
-            yield pb.build(pid)
+            if deck_cards:
+                g.rng.shuffle(deck_cards)
+                yield PromptBuilder("Detective: Your deck (shuffled)").add_revealed_cards(deck_cards).must_select(0).build(pid)
+            if refresh_cards:
+                g.rng.shuffle(refresh_cards)
+                yield PromptBuilder("Detective: Your refresh pile (shuffled)").add_revealed_cards(refresh_cards).must_select(0).build(pid)
         return eff
 
     card.traits = [
