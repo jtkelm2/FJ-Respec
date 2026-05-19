@@ -242,7 +242,9 @@ When present (the field is omitted during play):
 | `winners` | array of string | Subset of `["RED", "BLUE"]`. May be empty.                       |
 | `outcome` | string          | One of the outcome constants (see below).                        |
 
-Outcome values: `MUTUAL_GOOD_WIN`, `GOOD_KILLED_EVIL`, `EVIL_KILLED_GOOD`, `GOOD_KILLED_GOOD`, `EXHAUSTION`, `GOOD_GOOD_MUTUAL_DEATH`, `GOOD_EVIL_MUTUAL_DEATH`, `GOOD_THWARTED`, `EVIL_THWARTED`.
+Outcome values: `MUTUAL_GOOD_WIN`, `GOOD_KILLED_EVIL`, `EVIL_KILLED_GOOD`, `GOOD_KILLED_GOOD`, `EXHAUSTION`, `GOOD_GOOD_MUTUAL_DEATH`, `GOOD_EVIL_MUTUAL_DEATH`, `GOOD_THWARTED`, `EVIL_THWARTED`, `FORFEIT`.
+
+`FORFEIT` is set when a player resigns or disconnects during the game. `winners` is the set of players who did *not* exit (empty if both did).
 
 #### 3.2.3 Events
 
@@ -475,9 +477,9 @@ The client MAY send the following messages at any time after the catalog has bee
 
 These messages do not consume an outstanding prompt. They are advisory signals into the engine's out-of-band channel. A server MAY simply log them; a complete server SHOULD wire them into the engine's resignation / draw machinery.
 
-**Disconnection.** If the client closes the transport without sending `resign`, the server SHOULD treat it as a disconnection (equivalent to a forfeit).
+**Disconnection.** If the client closes the transport without sending `resign`, the server treats it as a disconnection (equivalent to a forfeit). The opposing client receives a final `state` carrying `game_result` with `outcome: "FORFEIT"`, followed by `close`.
 
-> **Conformance note.** The current server reads OOB messages into `_oob_queue` (see `RemotePlayer._listen` in `player.py`) but does not yet consume them in the game loop.
+> **Implementation note.** `ForfeitWatcher` (in `server.py`) monitors each player's OOB channel; the first `resign`/disconnect aborts both players' pending prompts via `RemotePlayer.terminate()`, the game loop unwinds with `PlayerExited`, and `run_game()` records the forfeit. `draw_offer`/`draw_accept` remain advisory.
 
 ---
 

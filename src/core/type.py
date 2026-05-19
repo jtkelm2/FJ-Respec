@@ -347,6 +347,7 @@ class Outcome(Enum):
     GOOD_EVIL_MUTUAL_DEATH = auto()
     GOOD_THWARTED = auto()
     EVIL_THWARTED = auto()
+    FORFEIT = auto()
 
 @dataclass
 class GameResult:

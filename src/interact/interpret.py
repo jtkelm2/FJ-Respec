@@ -9,9 +9,9 @@ from core.type import (
     Response, PlayerView, compute_player_view,
     Effect, Event,
 )
-from interact.player import Player
+from interact.player import Player, PlayerExited
 
-log = logging.getLogger("server")
+_default_log = logging.getLogger("server")
 
 
 class Interpreter:
@@ -59,10 +59,12 @@ class ViewPushingInterpreter(Interpreter):
     is split out from AsyncAggregateInterpreter so the latter can focus
     on prompt routing alone."""
 
-    def __init__(self, g: GameState, players: dict[PID, Player], inner: Interpreter):
+    def __init__(self, g: GameState, players: dict[PID, Player], inner: Interpreter,
+                 logger: logging.Logger | None = None):
         self._g = g
         self._players = players
         self._inner = inner
+        self._log = logger or _default_log
         self._last_view: dict[PID, PlayerView] = {}
         for pid in PID:
            self.push_if_changed(pid, None)
@@ -70,11 +72,11 @@ class ViewPushingInterpreter(Interpreter):
     def push_if_changed(self, pid: PID, events: list[Event] | None = None) -> None:
         view = compute_player_view(self._g, pid)
         if self._last_view.get(pid) != view:
-            log.debug("ViewPushingInterpreter: %s view changed, pushing", pid.name)
+            self._log.debug("ViewPushingInterpreter: %s view changed, pushing", pid.name)
             self._players[pid].push_state(view, events or [])
             self._last_view[pid] = view
         else:
-            log.debug("ViewPushingInterpreter: %s view unchanged, skipping", pid.name)
+            self._log.debug("ViewPushingInterpreter: %s view unchanged, skipping", pid.name)
 
     def interpret(self, prompt: Prompt) -> Response:
         events = self._g.drain_events()
@@ -90,16 +92,24 @@ class AsyncAggregateInterpreter(Interpreter):
     player.prompt(half) and puts the result into a shared inbox. Outstanding
     prompts persist across interpret() calls — a player who lost an EITHER
     race keeps their thread alive, so no duplicate prompt is sent.
+
+    If any prompt raises PlayerExited (the player resigned or was terminated
+    by a forfeit watcher), the exception is propagated to the next interpret()
+    caller so the game loop can unwind and the server can record a forfeit.
     """
 
-    def __init__(self, red: Player, blue: Player):
+    def __init__(self, red: Player, blue: Player, logger: logging.Logger | None = None):
         self._players = {PID.RED: red, PID.BLUE: blue}
-        self._inbox: Queue[tuple[PID, Option | list[Option]]] = Queue()
+        self._inbox: Queue[tuple[PID, Option | list[Option] | PlayerExited]] = Queue()
         self._outstanding: set[PID] = set()
+        self._exited: PlayerExited | None = None
+        self._log = logger or _default_log
 
     def interpret(self, prompt: Prompt) -> Response:
+        if self._exited is not None:
+            raise self._exited
         players_in_prompt = [pid.name for pid in prompt.for_player]
-        log.info("interpret: kind=%s players=%s", prompt.kind.name, players_in_prompt)
+        self._log.info("interpret: kind=%s players=%s", prompt.kind.name, players_in_prompt)
 
         match prompt.kind:
             case PKind.BOTH:
@@ -109,37 +119,49 @@ class AsyncAggregateInterpreter(Interpreter):
 
     def _spawn_prompt(self, pid: PID, half: PromptHalf) -> None:
         """Spawn a worker thread that calls player.prompt(half) and puts the
-        result in the inbox. Marks pid as outstanding."""
+        result (or a PlayerExited marker) in the inbox. Marks pid as outstanding."""
         self._outstanding.add(pid)
-        log.info("interpret: spawning prompt for %s: %r", pid.name, half.text)
+        self._log.info("interpret: spawning prompt for %s: %r", pid.name, half.text)
         def _worker(p=pid, h=half):
             try:
                 option = self._players[p].prompt(h)
+                self._inbox.put((p, option))
+            except PlayerExited as e:
+                self._log.info("_worker: %s prompt aborted (PlayerExited)", p.name)
+                self._inbox.put((p, e))
             except Exception as e:
-                log.warning("_worker: %s prompt failed: %s", p.name, e)
-                return
-            self._inbox.put((p, option))
+                self._log.warning("_worker: %s prompt failed: %s", p.name, e)
         Thread(target=_worker, daemon=True, name=f"prompt-{pid.name}").start()
 
+    def _consume(self) -> tuple[PID, Option | list[Option]]:
+        """Take one item from the inbox. If it's a PlayerExited marker, record
+        it for future interpret() calls and re-raise immediately."""
+        rpid, item = self._inbox.get()
+        self._outstanding.discard(rpid)
+        if isinstance(item, PlayerExited):
+            self._exited = item
+            raise item
+        return rpid, item
+
     def _interpret_both(self, prompt: Prompt) -> Response:
-        log.info("interpret: BOTH — sending to %s", [p.name for p in prompt.for_player])
+        self._log.info("interpret: BOTH — sending to %s", [p.name for p in prompt.for_player])
 
         for pid, half in prompt.for_player.items():
-            self._spawn_prompt(pid, half)
+            if pid not in self._outstanding:
+                self._spawn_prompt(pid, half)
 
         results: dict[PID, Option | list[Option]] = {}
         needed = set(prompt.for_player.keys())
 
         while needed:
-            rpid, option = self._inbox.get()
-            self._outstanding.discard(rpid)
+            rpid, option = self._consume()
             if rpid in needed:
                 results[rpid] = option
                 needed.discard(rpid)
             else:
-                log.warning("interpret: BOTH — stale option from %s", rpid.name)
+                self._log.warning("interpret: BOTH — stale option from %s", rpid.name)
 
-        log.info("interpret: BOTH results=%s", {p.name: v for p, v in results.items()})
+        self._log.info("interpret: BOTH results=%s", {p.name: v for p, v in results.items()})
         return results
 
     def _interpret_either(self, prompt: Prompt) -> Response:
@@ -148,9 +170,8 @@ class AsyncAggregateInterpreter(Interpreter):
                 self._spawn_prompt(pid, half)
 
         while True:
-            rpid, option = self._inbox.get()
-            self._outstanding.discard(rpid)
+            rpid, option = self._consume()
             if rpid in prompt.for_player:
-                log.info("interpret: EITHER answered by %s (%s)", rpid.name, option)
+                self._log.info("interpret: EITHER answered by %s (%s)", rpid.name, option)
                 return {rpid: option}
-            log.warning("interpret: EITHER — stale option from %s", rpid.name)
+            self._log.warning("interpret: EITHER — stale option from %s", rpid.name)
